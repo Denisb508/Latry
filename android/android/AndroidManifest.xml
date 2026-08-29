@@ -36,7 +36,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
 
     <application
-        android:name=".LatryApplication"
+        android:name="yo6say.latry.LatryApplication"
         android:hardwareAccelerated="true"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
@@ -68,13 +68,13 @@
         </activity>
 
         <activity
-            android:name=".QtLoaderConflictActivity"
+            android:name="yo6say.latry.QtLoaderConflictActivity"
             android:exported="false"
             android:theme="@style/NormalTheme"/>
 
         <!-- VoIP Background Service - QtService compliant -->
         <service
-            android:name=".VoipBackgroundService"
+            android:name="yo6say.latry.VoipBackgroundService"
             android:enabled="true"
             android:foregroundServiceType="microphone|mediaPlayback"
             android:exported="false"
@@ -85,7 +85,7 @@
         </service>
 
         <receiver
-            android:name=".PTTButtonBroadcastReceiver"
+            android:name="yo6say.latry.PTTButtonBroadcastReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter android:priority="999">
@@ -104,12 +104,11 @@
         </receiver>
 
         <!-- Broadcast Receivers for notification actions -->
-        <receiver android:name=".NotificationActionReceiver" android:exported="false"/>
-        
+        <receiver android:name="yo6say.latry.NotificationActionReceiver" android:exported="false"/>
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="yo6say.latry.145500.xyz.qtprovider"
+            android:authorities="si.pmr446.latry.ob508.qtprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
