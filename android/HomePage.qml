@@ -29,6 +29,11 @@ Page {
     required property real txMeterPeakLevel
     required property var reflectorClient
     required property bool tapToTalkButtonVisible
+    required property bool showReflectorUsers
+    required property bool showFrnUsers
+
+    property var reflectorUsers: []
+    property var frnUsers: []
 
     signal openSettingsRequested()
     signal openProfileSwitcherRequested()
@@ -56,6 +61,53 @@ Page {
 
     function talkgroupLabel(talkgroup) {
         return talkgroup === 0 ? qsTr("Monitor Mode") : qsTr("TG %1").arg(talkgroup)
+    }
+
+    function filteredObUsers(nodes) {
+        const result = []
+        for (let i = 0; i < nodes.length; ++i) {
+            const cs = String(nodes[i]).trim().toUpperCase()
+            if (/^OB[0-9A-Z]+$/.test(cs) && result.indexOf(cs) < 0)
+                result.push(cs)
+        }
+        result.sort()
+        return result
+    }
+
+    function addReflectorUser(callsign) {
+        const next = reflectorUsers.slice()
+        const filtered = filteredObUsers([callsign])
+        if (filtered.length === 0 || next.indexOf(filtered[0]) >= 0)
+            return
+        next.push(filtered[0])
+        next.sort()
+        reflectorUsers = next
+    }
+
+    function removeReflectorUser(callsign) {
+        const cs = String(callsign).trim().toUpperCase()
+        const next = reflectorUsers.slice()
+        const idx = next.indexOf(cs)
+        if (idx >= 0) {
+            next.splice(idx, 1)
+            reflectorUsers = next
+        }
+    }
+
+    Connections {
+        target: page.reflectorClient
+
+        function onConnectedNodesChanged(nodes) {
+            page.reflectorUsers = page.filteredObUsers(nodes)
+        }
+
+        function onNodeJoined(callsign) {
+            page.addReflectorUser(callsign)
+        }
+
+        function onNodeLeft(callsign) {
+            page.removeReflectorUser(callsign)
+        }
     }
 
     background: Rectangle {
@@ -86,7 +138,7 @@ Page {
 
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Latry")
+                text: qsTr("Latry by OB508")
                 font.pixelSize: page.uiMetrics.titleFontSize
                 font.bold: true
             }
@@ -158,6 +210,98 @@ Page {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                     font.pixelSize: page.uiMetrics.statusFontSize
+                }
+
+
+                Frame {
+                    width: parent.width
+                    visible: page.showReflectorUsers || page.showFrnUsers
+                    padding: page.uiMetrics.sectionPadding
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: qsTr("Gateway activity")
+
+                    background: Rectangle {
+                        Accessible.ignored: true
+                        radius: page.uiMetrics.frameRadius
+                        color: page.surfaceColor
+                        border.color: page.borderColor
+                    }
+
+                    contentItem: ColumnLayout {
+                        spacing: 8
+
+                        Label {
+                            text: qsTr("Aktivnosti na prehodih")
+                            font.pixelSize: page.uiMetrics.sectionTitleFontSize
+                            font.bold: true
+                            color: "#0f172a"
+                        }
+
+                        Label {
+                            visible: page.showReflectorUsers
+                            Layout.fillWidth: true
+                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
+                            font.bold: true
+                            color: "#334155"
+                        }
+
+                        Flow {
+                            visible: page.showReflectorUsers
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Repeater {
+                                model: page.reflectorUsers
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    radius: 10
+                                    color: "#e8f5e9"
+                                    border.color: "#86c98a"
+                                    implicitWidth: userLabel.implicitWidth + 18
+                                    implicitHeight: userLabel.implicitHeight + 10
+                                    Label {
+                                        id: userLabel
+                                        anchors.centerIn: parent
+                                        text: "● " + modelData
+                                        color: "#216e2d"
+                                        font.bold: true
+                                    }
+                                }
+                            }
+                        }
+
+                        Label {
+                            visible: page.showReflectorUsers && page.reflectorUsers.length === 0
+                            text: page.reflectorClient.isDisconnected
+                                  ? qsTr("SvxReflector ni povezan.")
+                                  : qsTr("Trenutno ni prijavljenih OB uporabnikov.")
+                            color: "#64748b"
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Rectangle {
+                            visible: page.showReflectorUsers && page.showFrnUsers
+                            Layout.fillWidth: true
+                            implicitHeight: 1
+                            color: "#e2e8f0"
+                        }
+
+                        Label {
+                            visible: page.showFrnUsers
+                            Layout.fillWidth: true
+                            text: qsTr("FRN uporabniki")
+                            font.bold: true
+                            color: "#334155"
+                        }
+
+                        Label {
+                            visible: page.showFrnUsers && page.frnUsers.length === 0
+                            Layout.fillWidth: true
+                            text: qsTr("FRN seznam bo prikazan, ko je nastavljen FRN status vir.")
+                            wrapMode: Text.WordWrap
+                            color: "#64748b"
+                        }
+                    }
                 }
 
                 Frame {

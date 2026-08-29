@@ -136,6 +136,8 @@ Window {
         property int txTimeoutSeconds: 175
         property int pttHangTimeMs: 100
         property bool tapToTalkButtonVisible: true
+        property bool showReflectorUsers: true
+        property bool showFrnUsers: false
         property bool liveTranscriptionEnabled: false
         property string nodeInfoPropertiesJson: "[]"
     }
@@ -670,6 +672,14 @@ Window {
         saved.tapToTalkButtonVisible = !!visible
     }
 
+    function updateShowReflectorUsers(visible) {
+        saved.showReflectorUsers = !!visible
+    }
+
+    function updateShowFrnUsers(visible) {
+        saved.showFrnUsers = !!visible
+    }
+
     function updateLiveTranscriptionEnabled(enabled) {
         const allowLiveTranscription = uiMetrics.liveTranscriptionAllowed
         const normalizedEnabled = allowLiveTranscription && !!enabled
@@ -802,6 +812,8 @@ Window {
             txMeterLevel: ReflectorClient.txMeterLevel
             txMeterPeakLevel: ReflectorClient.txMeterPeakLevel
             tapToTalkButtonVisible: saved.tapToTalkButtonVisible
+            showReflectorUsers: saved.showReflectorUsers
+            showFrnUsers: saved.showFrnUsers
 
             onOpenSettingsRequested: stackView.push(settingsPageComponent)
             onOpenProfileSwitcherRequested: quickProfileDialog.open()
@@ -842,6 +854,8 @@ Window {
             txTimeoutSeconds: ReflectorClient.txTimeoutSeconds
             pttHangTimeMs: ReflectorClient.pttHangTimeMs
             tapToTalkButtonVisible: saved.tapToTalkButtonVisible
+            showReflectorUsers: saved.showReflectorUsers
+            showFrnUsers: saved.showFrnUsers
 
             onBackRequested: stackView.pop()
             onAddProfileRequested: {
@@ -864,6 +878,8 @@ Window {
             onTxTimeoutSecondsRequested: seconds => window.updateTxTimeoutSeconds(seconds)
             onPttHangTimeMsRequested: milliseconds => window.updatePttHangTimeMs(milliseconds)
             onTapToTalkButtonVisibleRequested: visible => window.updateTapToTalkButtonVisible(visible)
+            onShowReflectorUsersRequested: visible => window.updateShowReflectorUsers(visible)
+            onShowFrnUsersRequested: visible => window.updateShowFrnUsers(visible)
             onHardwarePttEnabledRequested: enabled => ReflectorClient.setHardwarePttEnabled(enabled)
             onLearnedHardwarePttKeyCodeRequested: keyCode => ReflectorClient.setLearnedHardwarePttKeyCode(keyCode)
             onClearLearnedHardwarePttKeyCodeRequested: ReflectorClient.clearLearnedHardwarePttKeyCode()

@@ -32,6 +32,8 @@ Page {
     required property int txTimeoutSeconds
     required property int pttHangTimeMs
     required property bool tapToTalkButtonVisible
+    required property bool showReflectorUsers
+    required property bool showFrnUsers
     required property var reflectorClient
     property bool downloadableLanguagesExpanded: false
     property string compactSection: ""
@@ -56,6 +58,8 @@ Page {
     signal txTimeoutSecondsRequested(int seconds)
     signal pttHangTimeMsRequested(int milliseconds)
     signal tapToTalkButtonVisibleRequested(bool visible)
+    signal showReflectorUsersRequested(bool visible)
+    signal showFrnUsersRequested(bool visible)
     signal hardwarePttEnabledRequested(bool enabled)
     signal learnedHardwarePttKeyCodeRequested(int keyCode)
     signal clearLearnedHardwarePttKeyCodeRequested()
@@ -1099,6 +1103,68 @@ Page {
                                                      : qsTr("Use %1").arg(page.audioRouteName("bluetooth"))
                                     onClicked: page.audioRouteRequested("bluetooth")
                                 }
+                            }
+                        }
+                    }
+                }
+
+
+                Frame {
+                    visible: !page.compactSettingsMode || page.compactSection === "radio"
+                    width: parent.width
+                    padding: page.uiMetrics.sectionPadding
+                    implicitHeight: implicitContentHeight + topPadding + bottomPadding
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: qsTr("Gateway activity")
+
+                    background: Rectangle {
+                        Accessible.ignored: true
+                        radius: page.uiMetrics.frameRadius
+                        color: page.surfaceColor
+                        border.color: page.borderColor
+                    }
+
+                    contentItem: ColumnLayout {
+                        spacing: 12
+
+                        Label {
+                            text: qsTr("Aktivnosti na prehodih")
+                            font.pixelSize: page.uiMetrics.sectionTitleFontSize
+                            font.bold: true
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Izberi, katere sezname uporabnikov želiš prikazovati na začetnem zaslonu.")
+                            wrapMode: Text.WordWrap
+                            color: "#556070"
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Prikaži SvxReflector uporabnike")
+                                font.bold: true
+                                wrapMode: Text.WordWrap
+                            }
+                            Switch {
+                                checked: page.showReflectorUsers
+                                onClicked: page.showReflectorUsersRequested(checked)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Prikaži FRN uporabnike")
+                                font.bold: true
+                                wrapMode: Text.WordWrap
+                            }
+                            Switch {
+                                checked: page.showFrnUsers
+                                onClicked: page.showFrnUsersRequested(checked)
                             }
                         }
                     }
