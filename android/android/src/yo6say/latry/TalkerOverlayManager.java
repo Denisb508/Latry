@@ -1,5 +1,9 @@
 package yo6say.latry;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -28,9 +32,13 @@ import android.widget.TextView;
  */
 public final class TalkerOverlayManager {
     private static final String TAG = "TalkerOverlay";
+    private static final String SETUP_CHANNEL_ID = "talker_overlay_setup";
+    private static final String SETUP_CHANNEL_NAME = "Talker Overlay Setup";
+    private static final int SETUP_NOTIFICATION_ID = 1202;
 
     private final Context context;
     private final WindowManager windowManager;
+    private final NotificationManager notificationManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private View overlayView;
@@ -38,10 +46,13 @@ public final class TalkerOverlayManager {
     private TextView detailView;
     private WindowManager.LayoutParams layoutParams;
     private boolean permissionWarningLogged;
+    private boolean permissionPromptPosted;
 
     public TalkerOverlayManager(Context context) {
         this.context = context.getApplicationContext();
         this.windowManager = (WindowManager) this.context.getSystemService(Context.WINDOW_SERVICE);
+        this.notificationManager = (NotificationManager) this.context.getSystemService(Context.NOTIFICATION_SERVICE);
+        createSetupNotificationChannel();
     }
 
     public boolean hasOverlayPermission() {
@@ -50,14 +61,16 @@ public final class TalkerOverlayManager {
 
     public void openOverlayPermissionSettings() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || hasOverlayPermission()) {
+            cancelPermissionNotification();
             return;
         }
 
-        Intent intent = new Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + context.getPackageName()));
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        Intent intent = buildOverlayPermissionIntent();
+        try {
+            context.startActivity(intent);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Unable to open overlay permission settings", e);
+        }
     }
 
     public void showTalker(String talker, int talkGroup) {
@@ -76,6 +89,7 @@ public final class TalkerOverlayManager {
 
     public void destroy() {
         hide();
+        cancelPermissionNotification();
     }
 
     private void showTalkerOnMainThread(String talker, int talkGroup) {
@@ -84,10 +98,12 @@ public final class TalkerOverlayManager {
                 Log.w(TAG, "Talker overlay permission is not granted");
                 permissionWarningLogged = true;
             }
+            postPermissionNotification();
             return;
         }
 
         permissionWarningLogged = false;
+        cancelPermissionNotification();
         ensureOverlayView();
 
         talkerView.setText(talker);
@@ -114,6 +130,79 @@ public final class TalkerOverlayManager {
         } catch (RuntimeException e) {
             Log.w(TAG, "Unable to remove talker overlay cleanly", e);
         }
+    }
+
+    private void createSetupNotificationChannel() {
+        if (notificationManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+
+        NotificationChannel existing = notificationManager.getNotificationChannel(SETUP_CHANNEL_ID);
+        if (existing != null) {
+            return;
+        }
+
+        NotificationChannel channel = new NotificationChannel(
+                SETUP_CHANNEL_ID,
+                SETUP_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT);
+        channel.setDescription("Permission required to show the active Latry talker above other apps");
+        notificationManager.createNotificationChannel(channel);
+    }
+
+    private Intent buildOverlayPermissionIntent() {
+        Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + context.getPackageName()));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return intent;
+    }
+
+    private void postPermissionNotification() {
+        if (permissionPromptPosted || notificationManager == null) {
+            return;
+        }
+
+        Intent settingsIntent = buildOverlayPermissionIntent();
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                context,
+                SETUP_NOTIFICATION_ID,
+                settingsIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(context, SETUP_CHANNEL_ID)
+                : new Notification.Builder(context);
+
+        Notification notification = builder
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Enable Talker Overlay")
+                .setContentText("Tap to allow Latry to show the active talker over other apps.")
+                .setStyle(new Notification.BigTextStyle().bigText(
+                        "Latry needs Display over other apps permission for the floating TALKER card. Tap here, then enable the permission for Latry."))
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .build();
+
+        try {
+            notificationManager.notify(SETUP_NOTIFICATION_ID, notification);
+            permissionPromptPosted = true;
+            Log.i(TAG, "Posted Talker Overlay permission notification");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Unable to post Talker Overlay permission notification", e);
+        }
+    }
+
+    private void cancelPermissionNotification() {
+        if (notificationManager != null) {
+            try {
+                notificationManager.cancel(SETUP_NOTIFICATION_ID);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Unable to cancel Talker Overlay permission notification", e);
+            }
+        }
+        permissionPromptPosted = false;
     }
 
     private void ensureOverlayView() {
