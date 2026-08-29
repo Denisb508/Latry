@@ -177,10 +177,11 @@ public final class TalkerOverlayManager {
         Notification notification = builder
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("Enable Talker Overlay")
-                .setContentText("Tap to allow Latry to show the active talker over other apps.")
+                .setContentText("Tap to enable the floating Latry talker card over other apps.")
                 .setStyle(new Notification.BigTextStyle().bigText(
                         "Latry needs Display over other apps permission for the floating TALKER card. Tap here, then enable the permission for Latry."))
                 .setContentIntent(pendingIntent)
+                .setCategory(Notification.CATEGORY_SYSTEM)
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
                 .build();
