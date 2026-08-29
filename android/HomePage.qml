@@ -34,6 +34,8 @@ Page {
 
     property var reflectorUsers: []
     property var frnUsers: []
+    property string frnStatusMessage: ""
+    readonly property string frnStatusUrl: "https://svxportal.pmr446.si/frn_users.json"
 
     signal openSettingsRequested()
     signal openProfileSwitcherRequested()
@@ -92,6 +94,77 @@ Page {
             next.splice(idx, 1)
             reflectorUsers = next
         }
+    }
+
+    function normalizedFrnUsers(items) {
+        const result = []
+        if (!items || !Array.isArray(items))
+            return result
+
+        for (let i = 0; i < items.length; ++i) {
+            let value = items[i]
+            if (value && typeof value === "object")
+                value = value.display || value.name || value.callsign || value.user || ""
+
+            const label = String(value).trim()
+            if (label.length > 0 && result.indexOf(label) < 0)
+                result.push(label)
+        }
+
+        result.sort(function(a, b) {
+            return a.localeCompare(b)
+        })
+        return result
+    }
+
+    function refreshFrnUsers() {
+        if (!page.showFrnUsers) {
+            page.frnUsers = []
+            page.frnStatusMessage = ""
+            return
+        }
+
+        const xhr = new XMLHttpRequest()
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+
+            if (xhr.status < 200 || xhr.status >= 300) {
+                page.frnStatusMessage = qsTr("FRN seznam trenutno ni dosegljiv.")
+                return
+            }
+
+            try {
+                const parsed = JSON.parse(xhr.responseText)
+                const users = Array.isArray(parsed) ? parsed : parsed.users
+                page.frnUsers = page.normalizedFrnUsers(users)
+                page.frnStatusMessage = page.frnUsers.length === 0
+                        ? qsTr("Trenutno ni prijavljenih FRN uporabnikov.")
+                        : ""
+            } catch (error) {
+                console.warn("Invalid FRN users JSON", error)
+                page.frnStatusMessage = qsTr("FRN seznam ima napačen format.")
+            }
+        }
+        xhr.open("GET", page.frnStatusUrl + "?t=" + Date.now())
+        xhr.send()
+    }
+
+    onShowFrnUsersChanged: {
+        if (showFrnUsers)
+            refreshFrnUsers()
+        else {
+            frnUsers = []
+            frnStatusMessage = ""
+        }
+    }
+
+    Timer {
+        interval: 15000
+        repeat: true
+        running: page.showFrnUsers
+        triggeredOnStart: true
+        onTriggered: page.refreshFrnUsers()
     }
 
     Connections {
@@ -289,15 +362,41 @@ Page {
                         Label {
                             visible: page.showFrnUsers
                             Layout.fillWidth: true
-                            text: qsTr("FRN uporabniki")
+                            text: qsTr("FRN uporabniki (%1)").arg(page.frnUsers.length)
                             font.bold: true
                             color: "#334155"
                         }
 
-                        Label {
-                            visible: page.showFrnUsers && page.frnUsers.length === 0
+                        Flow {
+                            visible: page.showFrnUsers && page.frnUsers.length > 0
                             Layout.fillWidth: true
-                            text: qsTr("FRN seznam bo prikazan, ko je nastavljen FRN status vir.")
+                            spacing: 6
+
+                            Repeater {
+                                model: page.frnUsers
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    radius: 10
+                                    color: "#e0f2fe"
+                                    border.color: "#7dd3fc"
+                                    implicitWidth: frnUserLabel.implicitWidth + 18
+                                    implicitHeight: frnUserLabel.implicitHeight + 10
+
+                                    Label {
+                                        id: frnUserLabel
+                                        anchors.centerIn: parent
+                                        text: "● " + modelData
+                                        color: "#075985"
+                                        font.bold: true
+                                    }
+                                }
+                            }
+                        }
+
+                        Label {
+                            visible: page.showFrnUsers && page.frnStatusMessage.length > 0
+                            Layout.fillWidth: true
+                            text: page.frnStatusMessage
                             wrapMode: Text.WordWrap
                             color: "#64748b"
                         }
