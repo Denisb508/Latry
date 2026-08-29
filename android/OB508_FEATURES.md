@@ -7,7 +7,9 @@ This branch currently includes:
 - Gateway activity card on the Home screen.
 - Live SvxReflector `OB...` user list from NODE_LIST / NODE_JOINED / NODE_LEFT.
 - Optional FRN user list from `https://svxportal.pmr446.si/frn_users.json`.
+- Full FRN user details: display name, callsign, name, location, client type, raw FRN state, server count and update timestamp.
 - Settings switches for showing SvxReflector and FRN users.
 - FRN polling only while the FRN user list is enabled, refreshed every 15 seconds.
+- The FRN endpoint has been verified from the public Internet without WireGuard.
 
 This file also intentionally triggers a fresh Android debug build after the gateway-activity patch is applied.
