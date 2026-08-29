@@ -31,6 +31,7 @@ public final class LatryMediaSessionManager {
 
     private final Context context;
     private final ControlEventListener controlEventListener;
+    private final TalkerOverlayManager talkerOverlayManager;
 
     private MediaSession mediaSession;
     private String currentCallsign = "";
@@ -43,6 +44,7 @@ public final class LatryMediaSessionManager {
     public LatryMediaSessionManager(Context context, ControlEventListener controlEventListener) {
         this.context = context.getApplicationContext();
         this.controlEventListener = controlEventListener;
+        this.talkerOverlayManager = new TalkerOverlayManager(this.context);
     }
 
     public void initialize() {
@@ -165,6 +167,8 @@ public final class LatryMediaSessionManager {
     }
 
     public void release() {
+        talkerOverlayManager.destroy();
+
         if (mediaSession == null) {
             return;
         }
@@ -187,16 +191,19 @@ public final class LatryMediaSessionManager {
         }
 
         refreshSessionState();
+        syncTalkerOverlay();
     }
 
     public void updateTalkgroup(int talkgroup) {
         currentTalkgroup = talkgroup;
         refreshSessionState();
+        syncTalkerOverlay();
     }
 
     public void updateCurrentTalker(String talker) {
         currentTalker = talker == null ? "" : talker;
         refreshSessionState();
+        syncTalkerOverlay();
     }
 
     public void updateRXStatus(boolean receiving, String talker) {
@@ -207,6 +214,7 @@ public final class LatryMediaSessionManager {
             currentTalker = "";
         }
         refreshSessionState();
+        syncTalkerOverlay();
     }
 
     public void updateTXStatus(boolean transmitting) {
@@ -215,6 +223,7 @@ public final class LatryMediaSessionManager {
             isReceiving = false;
         }
         refreshSessionState();
+        syncTalkerOverlay();
     }
 
     MediaController getControllerForTesting() {
@@ -222,6 +231,15 @@ public final class LatryMediaSessionManager {
             return null;
         }
         return mediaSession.getController();
+    }
+
+    private void syncTalkerOverlay() {
+        if (isConnected && isReceiving && !isTransmitting && !currentTalker.isEmpty()) {
+            talkerOverlayManager.showTalker(currentTalker, currentTalkgroup);
+            return;
+        }
+
+        talkerOverlayManager.hide();
     }
 
     private void refreshSessionState() {
