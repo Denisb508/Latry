@@ -186,14 +186,13 @@ if(ANDROID)
         # This tells Qt where to find your AndroidManifest.xml, build.gradle, etc.
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android"
 
-        # This is the CORRECT property for the Application ID.
-        # Use the full, unique name required by the Play Store.
-        QT_ANDROID_PACKAGE_NAME "yo6say.latry"
+        # OB508 edition uses its own application ID so it can coexist with upstream Latry.
+        QT_ANDROID_PACKAGE_NAME "si.pmr446.latry.ob508"
 
         # Set the app icon from your Android resources
         QT_ANDROID_APP_ICON "@mipmap/ic_launcher"
 
-        QT_ANDROID_APP_NAME "Latry"
+        QT_ANDROID_APP_NAME "Latry by OB508"
 
         QT_ANDROID_VERSION_NAME "${LATRY_VERSION_NAME}"
         QT_ANDROID_VERSION_CODE "${LATRY_VERSION_CODE}"
