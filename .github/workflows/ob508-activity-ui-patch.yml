@@ -1,0 +1,37 @@
+name: OB508 Activity UI Patch
+
+on:
+  push:
+    branches:
+      - feature/talker-pip-overlay
+    paths:
+      - 'tools/ob508_activity_patch.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply OB508 activity UI patch
+        run: python3 tools/ob508_activity_patch.py
+
+      - name: Commit patched UI
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No UI changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/Main.qml android/HomePage.qml android/SettingsPage.qml
+          git commit -m "feat(android): add gateway activity user lists"
+          git push origin HEAD:${GITHUB_REF_NAME}
