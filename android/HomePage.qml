@@ -412,18 +412,7 @@ Page {
                             color: "#334155"
                         }
 
-                        Label {
-                            visible: page.showFrnUsers && page.frnUsers.length > 0
-                            Layout.fillWidth: true
-                            text: qsTr("Strežnik: %1 uporabnikov • Posodobljeno: %2")
-                                  .arg(page.frnServerCount)
-                                  .arg(page.frnUpdated.length > 0 ? page.frnUpdated : qsTr("ni podatka"))
-                            color: "#64748b"
-                            font.pixelSize: page.uiMetrics.captionFontSize
-                            wrapMode: Text.WordWrap
-                        }
-
-                        ColumnLayout {
+                        Flow {
                             visible: page.showFrnUsers && page.frnUsers.length > 0
                             Layout.fillWidth: true
                             spacing: 6
@@ -431,63 +420,21 @@ Page {
                             Repeater {
                                 model: page.frnUsers
 
-                                delegate: Frame {
+                                delegate: Rectangle {
                                     required property var modelData
-                                    Layout.fillWidth: true
-                                    padding: 9
+                                    radius: 10
+                                    color: "#e0f2fe"
+                                    border.color: "#7dd3fc"
+                                    border.width: 1
+                                    implicitWidth: frnUserLabel.implicitWidth + 18
+                                    implicitHeight: frnUserLabel.implicitHeight + 10
 
-                                    background: Rectangle {
-                                        radius: 10
-                                        color: "#e0f2fe"
-                                        border.color: "#7dd3fc"
-                                        border.width: 1
-                                    }
-
-                                    contentItem: ColumnLayout {
-                                        spacing: 2
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: "● " + (modelData.display || modelData.callsign || qsTr("FRN uporabnik"))
-                                            color: "#075985"
-                                            font.bold: true
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("Callsign: %1").arg(modelData.callsign || "—")
-                                            color: "#334155"
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("Ime: %1").arg(modelData.name || "—")
-                                            color: "#334155"
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("Lokacija: %1").arg(modelData.city || "—")
-                                            color: "#334155"
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("Klient: %1").arg(modelData.client || "—")
-                                            color: "#334155"
-                                            wrapMode: Text.WordWrap
-                                        }
-
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("FRN state: %1").arg(modelData.state !== "" ? modelData.state : "—")
-                                            color: "#334155"
-                                            wrapMode: Text.WordWrap
-                                        }
+                                    Label {
+                                        id: frnUserLabel
+                                        anchors.centerIn: parent
+                                        text: "● " + (modelData.display || modelData.callsign || qsTr("FRN uporabnik"))
+                                        color: "#075985"
+                                        font.bold: true
                                     }
                                 }
                             }
