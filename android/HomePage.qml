@@ -587,7 +587,10 @@ Page {
                                                 readonly property string statusColor:
                                                     modelData.statusColor || "gray"
 
-                                                width: Math.max(68, (frnUsersList.width - 6) / 2)
+                                                width: Math.max(
+                                                    (frnUsersList.width - 6) / 2,
+                                                    frnUserLabel.implicitWidth + 16
+                                                )
                                                 height: frnUsersList.height - 2
                                                 radius: 10
 
@@ -601,6 +604,7 @@ Page {
                                                 border.width: 1
 
                                                 Label {
+                                                    id: frnUserLabel
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 5
                                                     anchors.rightMargin: 5
