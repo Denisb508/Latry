@@ -37,6 +37,7 @@ Page {
     required property var reflectorClient
     property bool downloadableLanguagesExpanded: false
     property string compactSection: ""
+    property bool talkerOverlayPermissionGranted: false
     readonly property bool compactSettingsMode: page.uiMetrics.isSinglePaneScreen
     readonly property bool compactSectionChooserVisible: compactSettingsMode && compactSection === ""
     readonly property bool stackedHardwarePttControls: page.uiMetrics.isSinglePaneScreen
@@ -192,6 +193,21 @@ Page {
         rxLevelSlider.value = page.rxAudioLevelDb
         txLevelSlider.value = page.txAudioLevelDb
         hardwarePttKeyCodeField.text = page.learnedHardwarePttKeyCodeText()
+
+        if (Qt.platform.os === "android")
+            page.talkerOverlayPermissionGranted =
+                    page.reflectorClient.hasTalkerOverlayPermission()
+    }
+
+    Timer {
+        interval: 1000
+        repeat: true
+        running: page.visible && Qt.platform.os === "android"
+
+        onTriggered: {
+            page.talkerOverlayPermissionGranted =
+                    page.reflectorClient.hasTalkerOverlayPermission()
+        }
     }
 
     Connections {
@@ -1661,6 +1677,66 @@ Page {
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        Frame {
+                            visible: Qt.platform.os === "android"
+                            Layout.fillWidth: true
+                            padding: page.uiMetrics.nestedSectionPadding
+                            Accessible.role: Accessible.Grouping
+                            Accessible.name: qsTr("Talker Overlay settings")
+
+                            background: Rectangle {
+                                Accessible.ignored: true
+                                radius: page.uiMetrics.nestedFrameRadius
+                                color: "#f8fafc"
+                                border.color: "#d7deee"
+                            }
+
+                            contentItem: ColumnLayout {
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 3
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("Talker Overlay / PiP")
+                                            font.bold: true
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("Shows the active TALKER above other apps when Latry is in the background.")
+                                            wrapMode: Text.WordWrap
+                                            color: "#556070"
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: page.talkerOverlayPermissionGranted
+                                                  ? qsTr("Allowed")
+                                                  : qsTr("Not allowed")
+                                            font.bold: true
+                                            color: page.talkerOverlayPermissionGranted
+                                                   ? "#216e2d"
+                                                   : "#b91c1c"
+                                        }
+                                    }
+
+                                    Button {
+                                        text: qsTr("Setup")
+                                        Accessible.name: qsTr("Talker Overlay permission")
+                                        onClicked: page.reflectorClient.openTalkerOverlaySettings()
                                     }
                                 }
                             }

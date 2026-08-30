@@ -181,6 +181,8 @@ public:
     Q_INVOKABLE void setLiveTranscriptionEnabled(bool enabled);
     Q_INVOKABLE void downloadTranscriptionModel(const QString &languageTag = QString());
     Q_INVOKABLE void openTranscriptionSettings();
+    Q_INVOKABLE bool hasTalkerOverlayPermission() const;
+    Q_INVOKABLE void openTalkerOverlaySettings();
     Q_INVOKABLE void setCustomNodeInfoEntries(const QVariantList &entries);
 
     Q_INVOKABLE bool hasPortalToken() const;

@@ -55,8 +55,33 @@ public final class TalkerOverlayManager {
         createSetupNotificationChannel();
     }
 
+    public static boolean hasOverlayPermission(Context context) {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || Settings.canDrawOverlays(context.getApplicationContext());
+    }
+
+    public static boolean openOverlayPermissionSettings(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+
+        Context appContext = context.getApplicationContext();
+        Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + appContext.getPackageName()));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        try {
+            appContext.startActivity(intent);
+            return true;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Unable to open overlay permission settings", e);
+            return false;
+        }
+    }
+
     public boolean hasOverlayPermission() {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context);
+        return hasOverlayPermission(context);
     }
 
     public void openOverlayPermissionSettings() {

@@ -443,167 +443,196 @@ Page {
                             color: "#0f172a"
                         }
 
-                        Label {
-                            visible: page.showReflectorUsers
+                        RowLayout {
+                            id: activityColumns
                             Layout.fillWidth: true
-                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
-                            font.pixelSize: page.compactMode ? 11 : page.uiMetrics.captionFontSize
-                            font.bold: true
-                            color: "#334155"
-                        }
+                            spacing: 8
 
-                        Flickable {
-                            id: reflectorUsersFlick
-
-                            visible: page.showReflectorUsers
-                                     && page.reflectorUsers.length > 0
-                            Layout.fillWidth: true
-                            Layout.preferredHeight:
-                                reflectorUsersRow.implicitHeight
-                                + (contentWidth > width ? 8 : 0)
-
-                            clip: true
-                            contentWidth: reflectorUsersRow.implicitWidth
-                            contentHeight: reflectorUsersRow.implicitHeight
-                            flickableDirection: Flickable.HorizontalFlick
-                            boundsBehavior: Flickable.StopAtBounds
-
-                            ScrollBar.horizontal: ScrollBar {
-                                policy: ScrollBar.AsNeeded
-                            }
-
-                            Row {
-                                id: reflectorUsersRow
-                                spacing: 6
-
-                                Repeater {
-                                    model: page.reflectorUsers
-                                delegate: Rectangle {
-                                    required property string modelData
-                                    readonly property bool isTalking:
-                                        String(page.reflectorClient.currentTalker || "").trim().toUpperCase() === modelData
-                                    radius: 10
-                                    color: isTalking ? "#fee2e2" : "#e8f5e9"
-                                    border.color: isTalking ? "#ef4444" : "#86c98a"
-                                    border.width: 1
-                                    implicitWidth: userLabel.implicitWidth + 16
-                                    implicitHeight: userLabel.implicitHeight + 8
-                                    Label {
-                                        id: userLabel
-                                        anchors.centerIn: parent
-                                        text: "● " + modelData
-                                        color: parent.isTalking ? "#b91c1c" : "#216e2d"
-                                        font.pixelSize: page.uiMetrics.captionFontSize
-                                        font.bold: true
-                                    }
-                                }
-                            }
-                            }
-                        }
-
-                        Label {
-                            visible: page.showReflectorUsers && page.reflectorUsers.length === 0
-                            text: page.reflectorClient.isDisconnected
-                                  ? qsTr("SvxReflector ni povezan.")
-                                  : qsTr("Trenutno ni prijavljenih uporabnikov.")
-                            color: "#64748b"
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Rectangle {
-                            visible: page.showReflectorUsers && page.showFrnUsers
-                            Layout.fillWidth: true
-                            implicitHeight: 1
-                            color: "#e2e8f0"
-                        }
-
-                        Label {
-                            visible: page.showFrnUsers
-                            Layout.fillWidth: true
-                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
-                            font.pixelSize: page.uiMetrics.captionFontSize
-                            font.bold: true
-                            color: "#334155"
-                        }
-
-                        Repeater {
-                            model: page.showFrnUsers ? page.frnRooms : []
-
-                            delegate: ColumnLayout {
-                                required property var modelData
+                            // LEFT: SvxReflector
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 4
+                                Layout.preferredWidth: 1
+                                spacing: 5
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: qsTr("%1 (%2)").arg(modelData.name).arg(modelData.count)
-                                    font.pixelSize: page.uiMetrics.captionFontSize
+                                    visible: page.showReflectorUsers
+                                    text: qsTr("SvxReflector (%1)").arg(page.reflectorUsers.length)
+                                    font.pixelSize: page.compactMode ? 10 : page.uiMetrics.captionFontSize
                                     font.bold: true
-                                    color: modelData.online ? "#475569" : "#94a3b8"
+                                    color: "#334155"
+                                    elide: Text.ElideRight
                                 }
 
-                                Flickable {
-                                    id: frnUsersFlick
+                                ListView {
+                                    id: reflectorUsersList
 
+                                    visible: page.showReflectorUsers
+                                             && page.reflectorUsers.length > 0
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight:
-                                        frnUsersRow.implicitHeight
-                                        + (contentWidth > width ? 8 : 0)
+                                    Layout.preferredHeight: page.compactMode ? 34 : 38
 
+                                    orientation: ListView.Horizontal
+                                    model: page.reflectorUsers
+                                    spacing: 6
                                     clip: true
-                                    contentWidth: frnUsersRow.implicitWidth
-                                    contentHeight: frnUsersRow.implicitHeight
-                                    flickableDirection: Flickable.HorizontalFlick
+                                    interactive: contentWidth > width
                                     boundsBehavior: Flickable.StopAtBounds
+                                    snapMode: ListView.SnapToItem
+
+                                    delegate: Rectangle {
+                                        required property string modelData
+
+                                        readonly property bool isTalking:
+                                            String(page.reflectorClient.currentTalker || "")
+                                                .trim().toUpperCase() === modelData
+
+                                        width: Math.max(68, (reflectorUsersList.width - 6) / 2)
+                                        height: reflectorUsersList.height - 2
+                                        radius: 10
+                                        color: isTalking ? "#fee2e2" : "#e8f5e9"
+                                        border.color: isTalking ? "#ef4444" : "#86c98a"
+                                        border.width: 1
+
+                                        Label {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            verticalAlignment: Text.AlignVCenter
+                                            horizontalAlignment: Text.AlignHCenter
+                                            text: "● " + modelData
+                                            elide: Text.ElideRight
+                                            color: parent.isTalking ? "#b91c1c" : "#216e2d"
+                                            font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                            font.bold: true
+                                        }
+                                    }
 
                                     ScrollBar.horizontal: ScrollBar {
                                         policy: ScrollBar.AsNeeded
                                     }
+                                }
 
-                                    Row {
-                                        id: frnUsersRow
-                                        spacing: 6
+                                Label {
+                                    visible: page.showReflectorUsers
+                                             && page.reflectorUsers.length === 0
+                                    Layout.fillWidth: true
+                                    text: page.reflectorClient.isDisconnected
+                                          ? qsTr("Ni povezan.")
+                                          : qsTr("Ni uporabnikov.")
+                                    color: "#64748b"
+                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
 
-                                        Repeater {
-                                            model: page.frnUsersForRoom(modelData.name)
+                            Rectangle {
+                                visible: page.showReflectorUsers && page.showFrnUsers
+                                Layout.fillHeight: true
+                                Layout.preferredWidth: 1
+                                color: "#e2e8f0"
+                            }
 
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            readonly property string statusColor: modelData.statusColor || "gray"
-                                            radius: 10
-                                            color: statusColor === "green" ? "#ecfdf5"
-                                                   : statusColor === "yellow" ? "#fffbeb"
-                                                   : "#ffffff"
-                                            border.color: statusColor === "green" ? "#86c98a"
-                                                          : statusColor === "yellow" ? "#facc15"
-                                                          : "#cbd5e1"
-                                            border.width: 1
-                                            implicitWidth: frnUserLabel.implicitWidth + 16
-                                            implicitHeight: frnUserLabel.implicitHeight + 8
+                            // RIGHT: FRN
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                spacing: 5
 
-                                            Label {
-                                                id: frnUserLabel
-                                                anchors.centerIn: parent
-                                                text: "● " + modelData.display
-                                                color: parent.statusColor === "green" ? "#216e2d"
-                                                       : parent.statusColor === "yellow" ? "#a16207"
-                                                       : "#64748b"
-                                                font.pixelSize: page.uiMetrics.captionFontSize
-                                                font.bold: true
-                                            }
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: page.showFrnUsers
+                                    text: qsTr("FRN (%1)").arg(page.frnServerCount)
+                                    font.pixelSize: page.compactMode ? 10 : page.uiMetrics.captionFontSize
+                                    font.bold: true
+                                    color: "#334155"
+                                }
+
+                                Repeater {
+                                    model: page.showFrnUsers ? page.frnRooms : []
+
+                                    delegate: ColumnLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: 3
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("%1 (%2)")
+                                                    .arg(modelData.name)
+                                                    .arg(modelData.count)
+                                            font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                            font.bold: true
+                                            color: modelData.online ? "#475569" : "#94a3b8"
+                                            elide: Text.ElideRight
                                         }
+
+                                        ListView {
+                                            id: frnUsersList
+
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: page.compactMode ? 34 : 38
+
+                                            orientation: ListView.Horizontal
+                                            model: page.frnUsersForRoom(modelData.name)
+                                            spacing: 6
+                                            clip: true
+                                            interactive: contentWidth > width
+                                            boundsBehavior: Flickable.StopAtBounds
+                                            snapMode: ListView.SnapToItem
+
+                                            delegate: Rectangle {
+                                                required property var modelData
+
+                                                readonly property string statusColor:
+                                                    modelData.statusColor || "gray"
+
+                                                width: Math.max(68, (frnUsersList.width - 6) / 2)
+                                                height: frnUsersList.height - 2
+                                                radius: 10
+
+                                                color: statusColor === "green" ? "#ecfdf5"
+                                                       : statusColor === "yellow" ? "#fffbeb"
+                                                       : "#ffffff"
+
+                                                border.color: statusColor === "green" ? "#86c98a"
+                                                              : statusColor === "yellow" ? "#facc15"
+                                                              : "#cbd5e1"
+                                                border.width: 1
+
+                                                Label {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 5
+                                                    anchors.rightMargin: 5
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    text: "● " + modelData.display
+                                                    elide: Text.ElideRight
+                                                    color: parent.statusColor === "green" ? "#216e2d"
+                                                           : parent.statusColor === "yellow" ? "#a16207"
+                                                           : "#64748b"
+                                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                                    font.bold: true
+                                                }
+                                            }
+
+                                            ScrollBar.horizontal: ScrollBar {
+                                                policy: ScrollBar.AsNeeded
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        }
 
-                        Label {
-                            visible: page.showFrnUsers && page.frnStatusMessage.length > 0
-                            Layout.fillWidth: true
-                            text: page.frnStatusMessage
-                            wrapMode: Text.WordWrap
-                            color: "#64748b"
+                                Label {
+                                    visible: page.showFrnUsers
+                                             && page.frnStatusMessage.length > 0
+                                    Layout.fillWidth: true
+                                    text: page.frnStatusMessage
+                                    wrapMode: Text.WordWrap
+                                    color: "#64748b"
+                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                }
+                            }
                         }
                     }
                 }

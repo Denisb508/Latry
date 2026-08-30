@@ -3346,6 +3346,53 @@ void ReflectorClient::openTranscriptionSettings()
 #endif
 }
 
+bool ReflectorClient::hasTalkerOverlayPermission() const
+{
+#if defined(Q_OS_ANDROID)
+    const QJniObject context = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "getContext",
+        "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        return false;
+    }
+
+    return QJniObject::callStaticMethod<jboolean>(
+        "yo6say/latry/TalkerOverlayManager",
+        "hasOverlayPermission",
+        "(Landroid/content/Context;)Z",
+        context.object());
+#else
+    return false;
+#endif
+}
+
+void ReflectorClient::openTalkerOverlaySettings()
+{
+#if defined(Q_OS_ANDROID)
+    const QJniObject context = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "getContext",
+        "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        qWarning() << "ReflectorClient: failed to get Android context for overlay settings";
+        return;
+    }
+
+    const bool opened = QJniObject::callStaticMethod<jboolean>(
+        "yo6say/latry/TalkerOverlayManager",
+        "openOverlayPermissionSettings",
+        "(Landroid/content/Context;)Z",
+        context.object());
+
+    if (!opened) {
+        qWarning() << "ReflectorClient: failed to open Talker Overlay settings";
+    }
+#endif
+}
+
 void ReflectorClient::updateTxTimeoutWarningState()
 {
     const int remainingSeconds = m_txTimeoutSeconds - m_txSeconds;
