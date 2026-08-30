@@ -16,7 +16,7 @@ old_filter = '''    function filteredObUsers(nodes) {
         return result
     }
 '''
-new_filter = '''    function normalizedReflectorUsers(nodes) {
+base_filter = '''    function normalizedReflectorUsers(nodes) {
         const result = []
         if (!nodes || !Array.isArray(nodes))
             return result
@@ -30,8 +30,30 @@ new_filter = '''    function normalizedReflectorUsers(nodes) {
         return result
     }
 '''
+self_filter = '''    function normalizedReflectorUsers(nodes) {
+        const result = []
+        if (nodes && Array.isArray(nodes)) {
+            for (let i = 0; i < nodes.length; ++i) {
+                const cs = String(nodes[i] || "").trim().toUpperCase()
+                if (cs.length > 0 && result.indexOf(cs) < 0)
+                    result.push(cs)
+            }
+        }
+
+        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
+        if (ownCallsign.length > 0 && result.indexOf(ownCallsign) < 0)
+            result.push(ownCallsign)
+
+        result.sort()
+        return result
+    }
+'''
+
 if old_filter in s:
-    s = s.replace(old_filter, new_filter, 1)
+    s = s.replace(old_filter, self_filter, 1)
+    changed = True
+elif base_filter in s:
+    s = s.replace(base_filter, self_filter, 1)
     changed = True
 
 s2 = s.replace('const filtered = filteredObUsers([callsign])',
@@ -52,7 +74,7 @@ if s2 != s:
     s = s2
     changed = True
 
-# FRN: normalize to display strings only. Backend may keep all other fields.
+# FRN: normalize to display strings only for current simple view.
 start = s.find('    function normalizedFrnUsers(items) {')
 end = s.find('\n    function refreshFrnUsers()', start)
 if start >= 0 and end > start:
@@ -81,14 +103,114 @@ if start >= 0 and end > start:
         s = s[:start] + simple_normalizer + s[end+1:]
         changed = True
 
-# FRN header count should follow server count when provided.
 s2 = s.replace('text: qsTr("FRN uporabniki (%1)").arg(page.frnUsers.length)',
                'text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)')
 if s2 != s:
     s = s2
     changed = True
 
-# Simple one-line FRN chips. Handle both detailed and already-simple delegates.
+# Compact gateway headings.
+old_title = '''                        Label {
+                            text: qsTr("Aktivnosti na prehodih")
+                            font.pixelSize: page.uiMetrics.sectionTitleFontSize
+                            font.bold: true
+                            color: "#0f172a"
+                        }
+'''
+new_title = '''                        Label {
+                            text: qsTr("Aktivnosti na prehodih")
+                            font.pixelSize: Math.max(13, page.uiMetrics.captionFontSize + 1)
+                            font.bold: true
+                            color: "#0f172a"
+                        }
+'''
+if old_title in s:
+    s = s.replace(old_title, new_title, 1)
+    changed = True
+
+old_svx_heading = '''                        Label {
+                            visible: page.showReflectorUsers
+                            Layout.fillWidth: true
+                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
+                            font.bold: true
+                            color: "#334155"
+                        }
+'''
+new_svx_heading = '''                        Label {
+                            visible: page.showReflectorUsers
+                            Layout.fillWidth: true
+                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
+                            font.pixelSize: page.uiMetrics.captionFontSize
+                            font.bold: true
+                            color: "#334155"
+                        }
+'''
+if old_svx_heading in s:
+    s = s.replace(old_svx_heading, new_svx_heading, 1)
+    changed = True
+
+old_frn_heading = '''                        Label {
+                            visible: page.showFrnUsers
+                            Layout.fillWidth: true
+                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
+                            font.bold: true
+                            color: "#334155"
+                        }
+'''
+new_frn_heading = '''                        Label {
+                            visible: page.showFrnUsers
+                            Layout.fillWidth: true
+                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
+                            font.pixelSize: page.uiMetrics.captionFontSize
+                            font.bold: true
+                            color: "#334155"
+                        }
+'''
+if old_frn_heading in s:
+    s = s.replace(old_frn_heading, new_frn_heading, 1)
+    changed = True
+
+# Highlight current SvxReflector talker in red.
+old_svx_delegate = '''                                delegate: Rectangle {
+                                    required property string modelData
+                                    radius: 10
+                                    color: "#e8f5e9"
+                                    border.color: "#86c98a"
+                                    implicitWidth: userLabel.implicitWidth + 18
+                                    implicitHeight: userLabel.implicitHeight + 10
+                                    Label {
+                                        id: userLabel
+                                        anchors.centerIn: parent
+                                        text: "● " + modelData
+                                        color: "#216e2d"
+                                        font.bold: true
+                                    }
+                                }
+'''
+new_svx_delegate = '''                                delegate: Rectangle {
+                                    required property string modelData
+                                    readonly property bool isTalking:
+                                        String(page.reflectorClient.currentTalker || "").trim().toUpperCase() === modelData
+                                    radius: 10
+                                    color: isTalking ? "#fee2e2" : "#e8f5e9"
+                                    border.color: isTalking ? "#ef4444" : "#86c98a"
+                                    border.width: 1
+                                    implicitWidth: userLabel.implicitWidth + 18
+                                    implicitHeight: userLabel.implicitHeight + 10
+                                    Label {
+                                        id: userLabel
+                                        anchors.centerIn: parent
+                                        text: "● " + modelData
+                                        color: parent.isTalking ? "#b91c1c" : "#216e2d"
+                                        font.bold: true
+                                    }
+                                }
+'''
+if old_svx_delegate in s:
+    s = s.replace(old_svx_delegate, new_svx_delegate, 1)
+    changed = True
+
+# Simple one-line FRN chips, if an older detailed UI is still present.
 detailed_start = s.find('                        Label {\n                            visible: page.showFrnUsers && page.frnUsers.length > 0\n                            Layout.fillWidth: true\n                            text: qsTr("Strežnik:')
 status_marker = '                        Label {\n                            visible: page.showFrnUsers && page.frnStatusMessage.length > 0'
 status_pos = s.find(status_marker)
@@ -123,18 +245,10 @@ if detailed_start >= 0 and status_pos > detailed_start:
 '''
     s = s[:detailed_start] + simple_ui + s[status_pos:]
     changed = True
-else:
-    s2 = s.replace('required property var modelData\n                                    radius: 10',
-                   'required property string modelData\n                                    radius: 10', 1)
-    s2 = s2.replace('text: "● " + (modelData.display || modelData.callsign || qsTr("FRN uporabnik"))',
-                    'text: "● " + modelData', 1)
-    if s2 != s:
-        s = s2
-        changed = True
 
 if not changed:
-    print('Reflector/FRN activity display already up to date.')
+    print('Gateway activity UI already up to date.')
     raise SystemExit(0)
 
 HOME.write_text(s)
-print('Activity display updated: all reflector callsigns + FRN count/display only.')
+print('Gateway activity updated: compact fonts, own callsign, red current talker.')
