@@ -4,33 +4,18 @@ HOME = Path('android/HomePage.qml')
 s = HOME.read_text()
 changed = False
 
-# SvxReflector: show every non-empty connected callsign, not only OB*.
-old_filter = '''    function filteredObUsers(nodes) {
-        const result = []
-        for (let i = 0; i < nodes.length; ++i) {
-            const cs = String(nodes[i]).trim().toUpperCase()
-            if (/^OB[0-9A-Z]+$/.test(cs) && result.indexOf(cs) < 0)
-                result.push(cs)
-        }
-        result.sort()
-        return result
-    }
-'''
-base_filter = '''    function normalizedReflectorUsers(nodes) {
-        const result = []
-        if (!nodes || !Array.isArray(nodes))
-            return result
+# Add FRN room model.
+old = '    property var frnUsers: []\n    property string frnStatusMessage: ""\n'
+new = '    property var frnUsers: []\n    property var frnRooms: []\n    property string frnStatusMessage: ""\n'
+if old in s:
+    s = s.replace(old, new, 1)
+    changed = True
 
-        for (let i = 0; i < nodes.length; ++i) {
-            const cs = String(nodes[i] || "").trim().toUpperCase()
-            if (cs.length > 0 && result.indexOf(cs) < 0)
-                result.push(cs)
-        }
-        result.sort()
-        return result
-    }
-'''
-self_filter = '''    function normalizedReflectorUsers(nodes) {
+# SvxReflector: keep every callsign and include own connected profile callsign.
+start = s.find('    function normalizedReflectorUsers(nodes) {')
+end = s.find('\n    function addReflectorUser(callsign)', start)
+if start >= 0 and end > start:
+    block = '''    function normalizedReflectorUsers(nodes) {
         const result = []
         if (nodes && Array.isArray(nodes)) {
             for (let i = 0; i < nodes.length; ++i) {
@@ -41,153 +26,190 @@ self_filter = '''    function normalizedReflectorUsers(nodes) {
         }
 
         const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
-        if (ownCallsign.length > 0 && result.indexOf(ownCallsign) < 0)
+        if (!page.reflectorClient.isDisconnected
+                && ownCallsign.length > 0
+                && result.indexOf(ownCallsign) < 0)
             result.push(ownCallsign)
 
         result.sort()
         return result
     }
 '''
+    if s[start:end] != block.rstrip('\n'):
+        s = s[:start] + block + s[end+1:]
+        changed = True
 
-if old_filter in s:
-    s = s.replace(old_filter, self_filter, 1)
-    changed = True
-elif base_filter in s:
-    s = s.replace(base_filter, self_filter, 1)
-    changed = True
+# Fix incremental joined/left handling now that normalizer also adds self.
+start = s.find('    function addReflectorUser(callsign) {')
+end = s.find('\n    function removeReflectorUser(callsign)', start)
+if start >= 0 and end > start:
+    block = '''    function addReflectorUser(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
+        const next = reflectorUsers.slice()
+        if (cs.length === 0 || next.indexOf(cs) >= 0)
+            return
+        next.push(cs)
+        next.sort()
+        reflectorUsers = next
+    }
+'''
+    if s[start:end] != block.rstrip('\n'):
+        s = s[:start] + block + s[end+1:]
+        changed = True
 
-s2 = s.replace('const filtered = filteredObUsers([callsign])',
-               'const filtered = normalizedReflectorUsers([callsign])')
-if s2 != s:
-    s = s2
-    changed = True
+start = s.find('    function removeReflectorUser(callsign) {')
+end = s.find('\n    function normalizedFrnUsers(items)', start)
+if start >= 0 and end > start:
+    block = '''    function removeReflectorUser(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
+        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
+        if (cs === ownCallsign && !page.reflectorClient.isDisconnected)
+            return
 
-s2 = s.replace('page.reflectorUsers = page.filteredObUsers(nodes)',
-               'page.reflectorUsers = page.normalizedReflectorUsers(nodes)')
-if s2 != s:
-    s = s2
-    changed = True
+        const next = reflectorUsers.slice()
+        const idx = next.indexOf(cs)
+        if (idx >= 0) {
+            next.splice(idx, 1)
+            reflectorUsers = next
+        }
+    }
+'''
+    if s[start:end] != block.rstrip('\n'):
+        s = s[:start] + block + s[end+1:]
+        changed = True
 
-s2 = s.replace('qsTr("Trenutno ni prijavljenih OB uporabnikov.")',
-               'qsTr("Trenutno ni prijavljenih uporabnikov.")')
-if s2 != s:
-    s = s2
-    changed = True
-
-# FRN: normalize to display strings only for current simple view.
+# Preserve FRN room + portal status color instead of flattening to strings.
 start = s.find('    function normalizedFrnUsers(items) {')
 end = s.find('\n    function refreshFrnUsers()', start)
 if start >= 0 and end > start:
-    simple_normalizer = '''    function normalizedFrnUsers(items) {
+    block = '''    function normalizedFrnUsers(items) {
         const result = []
         if (!items || !Array.isArray(items))
             return result
 
         for (let i = 0; i < items.length; ++i) {
             const value = items[i]
-            let label = ""
-            if (value && typeof value === "object")
-                label = String(value.display || value.callsign || value.name || value.user || "").trim()
-            else
-                label = String(value || "").trim()
+            if (!value || typeof value !== "object")
+                continue
 
-            if (label.length > 0 && result.indexOf(label) < 0)
-                result.push(label)
+            const display = String(value.display || value.callsign || value.name || value.user || "").trim()
+            if (display.length === 0)
+                continue
+
+            let statusColor = String(value.status_color || "gray").trim().toLowerCase()
+            if (["green", "yellow", "gray"].indexOf(statusColor) < 0)
+                statusColor = "gray"
+
+            result.push({
+                display: display,
+                callsign: String(value.callsign || "").trim().toUpperCase(),
+                name: String(value.name || "").trim(),
+                room: String(value.room || "FRN").trim(),
+                statusColor: statusColor,
+                statusText: String(value.status_text || "").trim(),
+                state: Number(value.state || 0)
+            })
         }
 
-        result.sort(function(a, b) { return a.localeCompare(b) })
+        result.sort(function(a, b) {
+            const roomCmp = a.room.localeCompare(b.room)
+            return roomCmp !== 0 ? roomCmp : a.display.localeCompare(b.display)
+        })
+        return result
+    }
+
+    function normalizedFrnRooms(items, users) {
+        const result = []
+        const seen = []
+
+        if (items && Array.isArray(items)) {
+            for (let i = 0; i < items.length; ++i) {
+                const value = items[i]
+                if (!value || typeof value !== "object")
+                    continue
+                const name = String(value.name || "").trim()
+                if (name.length === 0 || seen.indexOf(name) >= 0)
+                    continue
+                seen.push(name)
+                result.push({
+                    name: name,
+                    online: value.online !== false,
+                    count: Number(value.count || 0)
+                })
+            }
+        }
+
+        if (users && Array.isArray(users)) {
+            for (let j = 0; j < users.length; ++j) {
+                const room = String(users[j].room || "FRN").trim()
+                if (seen.indexOf(room) < 0) {
+                    seen.push(room)
+                    result.push({name: room, online: true, count: 0})
+                }
+            }
+        }
+
+        return result
+    }
+
+    function frnUsersForRoom(roomName) {
+        const result = []
+        for (let i = 0; i < page.frnUsers.length; ++i) {
+            if (page.frnUsers[i].room === roomName)
+                result.push(page.frnUsers[i])
+        }
         return result
     }
 '''
-    if s[start:end] != simple_normalizer.rstrip('\n'):
-        s = s[:start] + simple_normalizer + s[end+1:]
+    if s[start:end] != block.rstrip('\n'):
+        s = s[:start] + block + s[end+1:]
         changed = True
 
-s2 = s.replace('text: qsTr("FRN uporabniki (%1)").arg(page.frnUsers.length)',
-               'text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)')
-if s2 != s:
-    s = s2
+# Read rooms from the common backend envelope.
+old = '''                const users = Array.isArray(parsed) ? parsed : parsed.users
+                page.frnUsers = page.normalizedFrnUsers(users)
+                page.frnServerCount = envelope && parsed.count !== undefined
+                        ? Number(parsed.count)
+                        : page.frnUsers.length
+'''
+new = '''                const users = Array.isArray(parsed) ? parsed : parsed.users
+                page.frnUsers = page.normalizedFrnUsers(users)
+                page.frnRooms = page.normalizedFrnRooms(
+                            envelope ? parsed.rooms : [], page.frnUsers)
+                page.frnServerCount = envelope && parsed.count !== undefined
+                        ? Number(parsed.count)
+                        : page.frnUsers.length
+'''
+if old in s:
+    s = s.replace(old, new, 1)
     changed = True
 
-# Compact gateway headings.
-old_title = '''                        Label {
-                            text: qsTr("Aktivnosti na prehodih")
-                            font.pixelSize: page.uiMetrics.sectionTitleFontSize
-                            font.bold: true
-                            color: "#0f172a"
-                        }
+# Clear room data when FRN display is disabled.
+old = '''        else {
+            frnUsers = []
+            frnStatusMessage = ""
+            frnUpdated = ""
+            frnServerCount = 0
+        }
 '''
-new_title = '''                        Label {
-                            text: qsTr("Aktivnosti na prehodih")
-                            font.pixelSize: Math.max(13, page.uiMetrics.captionFontSize + 1)
-                            font.bold: true
-                            color: "#0f172a"
-                        }
+new = '''        else {
+            frnUsers = []
+            frnRooms = []
+            frnStatusMessage = ""
+            frnUpdated = ""
+            frnServerCount = 0
+        }
 '''
-if old_title in s:
-    s = s.replace(old_title, new_title, 1)
+if old in s:
+    s = s.replace(old, new, 1)
     changed = True
 
-old_svx_heading = '''                        Label {
-                            visible: page.showReflectorUsers
-                            Layout.fillWidth: true
-                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
-                            font.bold: true
-                            color: "#334155"
-                        }
-'''
-new_svx_heading = '''                        Label {
-                            visible: page.showReflectorUsers
-                            Layout.fillWidth: true
-                            text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
-                            font.pixelSize: page.uiMetrics.captionFontSize
-                            font.bold: true
-                            color: "#334155"
-                        }
-'''
-if old_svx_heading in s:
-    s = s.replace(old_svx_heading, new_svx_heading, 1)
-    changed = True
+# Compact headings.
+s = s.replace('font.pixelSize: page.uiMetrics.sectionTitleFontSize\n                            font.bold: true\n                            color: "#0f172a"',
+              'font.pixelSize: Math.max(13, page.uiMetrics.captionFontSize + 1)\n                            font.bold: true\n                            color: "#0f172a"', 1)
 
-old_frn_heading = '''                        Label {
-                            visible: page.showFrnUsers
-                            Layout.fillWidth: true
-                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
-                            font.bold: true
-                            color: "#334155"
-                        }
-'''
-new_frn_heading = '''                        Label {
-                            visible: page.showFrnUsers
-                            Layout.fillWidth: true
-                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
-                            font.pixelSize: page.uiMetrics.captionFontSize
-                            font.bold: true
-                            color: "#334155"
-                        }
-'''
-if old_frn_heading in s:
-    s = s.replace(old_frn_heading, new_frn_heading, 1)
-    changed = True
-
-# Highlight current SvxReflector talker in red.
-old_svx_delegate = '''                                delegate: Rectangle {
-                                    required property string modelData
-                                    radius: 10
-                                    color: "#e8f5e9"
-                                    border.color: "#86c98a"
-                                    implicitWidth: userLabel.implicitWidth + 18
-                                    implicitHeight: userLabel.implicitHeight + 10
-                                    Label {
-                                        id: userLabel
-                                        anchors.centerIn: parent
-                                        text: "● " + modelData
-                                        color: "#216e2d"
-                                        font.bold: true
-                                    }
-                                }
-'''
-new_svx_delegate = '''                                delegate: Rectangle {
+# Compact Svx chips and red current talker.
+old = '''                                delegate: Rectangle {
                                     required property string modelData
                                     readonly property bool isTalking:
                                         String(page.reflectorClient.currentTalker || "").trim().toUpperCase() === modelData
@@ -206,44 +228,103 @@ new_svx_delegate = '''                                delegate: Rectangle {
                                     }
                                 }
 '''
-if old_svx_delegate in s:
-    s = s.replace(old_svx_delegate, new_svx_delegate, 1)
-    changed = True
-
-# Simple one-line FRN chips, if an older detailed UI is still present.
-detailed_start = s.find('                        Label {\n                            visible: page.showFrnUsers && page.frnUsers.length > 0\n                            Layout.fillWidth: true\n                            text: qsTr("Strežnik:')
-status_marker = '                        Label {\n                            visible: page.showFrnUsers && page.frnStatusMessage.length > 0'
-status_pos = s.find(status_marker)
-if detailed_start >= 0 and status_pos > detailed_start:
-    simple_ui = '''                        Flow {
-                            visible: page.showFrnUsers && page.frnUsers.length > 0
-                            Layout.fillWidth: true
-                            spacing: 6
-
-                            Repeater {
-                                model: page.frnUsers
-                                delegate: Rectangle {
+new = '''                                delegate: Rectangle {
                                     required property string modelData
+                                    readonly property bool isTalking:
+                                        String(page.reflectorClient.currentTalker || "").trim().toUpperCase() === modelData
                                     radius: 10
-                                    color: "#e0f2fe"
-                                    border.color: "#7dd3fc"
+                                    color: isTalking ? "#fee2e2" : "#e8f5e9"
+                                    border.color: isTalking ? "#ef4444" : "#86c98a"
                                     border.width: 1
-                                    implicitWidth: frnUserLabel.implicitWidth + 18
-                                    implicitHeight: frnUserLabel.implicitHeight + 10
-
+                                    implicitWidth: userLabel.implicitWidth + 16
+                                    implicitHeight: userLabel.implicitHeight + 8
                                     Label {
-                                        id: frnUserLabel
+                                        id: userLabel
                                         anchors.centerIn: parent
                                         text: "● " + modelData
-                                        color: "#075985"
+                                        color: parent.isTalking ? "#b91c1c" : "#216e2d"
+                                        font.pixelSize: page.uiMetrics.captionFontSize
                                         font.bold: true
+                                    }
+                                }
+'''
+if old in s:
+    s = s.replace(old, new, 1)
+    changed = True
+
+# Replace simple FRN chip flow with room-aware sections and portal status colors.
+frn_flow_start = s.find('                        Flow {\n                            visible: page.showFrnUsers && page.frnUsers.length > 0')
+frn_status_marker = '                        Label {\n                            visible: page.showFrnUsers && page.frnStatusMessage.length > 0'
+frn_flow_end = s.find(frn_status_marker, frn_flow_start)
+if frn_flow_start >= 0 and frn_flow_end > frn_flow_start:
+    room_ui = '''                        Repeater {
+                            model: page.showFrnUsers ? page.frnRooms : []
+
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("%1 (%2)").arg(modelData.name).arg(modelData.count)
+                                    font.pixelSize: page.uiMetrics.captionFontSize
+                                    font.bold: true
+                                    color: modelData.online ? "#475569" : "#94a3b8"
+                                }
+
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Repeater {
+                                        model: page.frnUsersForRoom(modelData.name)
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            readonly property string statusColor: modelData.statusColor || "gray"
+                                            radius: 10
+                                            color: statusColor === "green" ? "#ecfdf5"
+                                                   : statusColor === "yellow" ? "#fffbeb"
+                                                   : "#ffffff"
+                                            border.color: statusColor === "green" ? "#86c98a"
+                                                          : statusColor === "yellow" ? "#facc15"
+                                                          : "#cbd5e1"
+                                            border.width: 1
+                                            implicitWidth: frnUserLabel.implicitWidth + 16
+                                            implicitHeight: frnUserLabel.implicitHeight + 8
+
+                                            Label {
+                                                id: frnUserLabel
+                                                anchors.centerIn: parent
+                                                text: "● " + modelData.display
+                                                color: parent.statusColor === "green" ? "#216e2d"
+                                                       : parent.statusColor === "yellow" ? "#a16207"
+                                                       : "#64748b"
+                                                font.pixelSize: page.uiMetrics.captionFontSize
+                                                font.bold: true
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
 '''
-    s = s[:detailed_start] + simple_ui + s[status_pos:]
+    s = s[:frn_flow_start] + room_ui + s[frn_flow_end:]
+    changed = True
+
+# Ensure activity and section headings are compact even if already partially patched.
+old = 'text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)\n                            font.bold: true'
+new = 'text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)\n                            font.pixelSize: page.uiMetrics.captionFontSize\n                            font.bold: true'
+if old in s:
+    s = s.replace(old, new, 1)
+    changed = True
+
+old = 'text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)\n                            font.bold: true'
+new = 'text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)\n                            font.pixelSize: page.uiMetrics.captionFontSize\n                            font.bold: true'
+if old in s:
+    s = s.replace(old, new, 1)
     changed = True
 
 if not changed:
@@ -251,4 +332,4 @@ if not changed:
     raise SystemExit(0)
 
 HOME.write_text(s)
-print('Gateway activity updated: compact fonts, own callsign, red current talker.')
+print('Gateway activity updated: FRN rooms/status colors, compact fonts, own callsign, red talker.')
