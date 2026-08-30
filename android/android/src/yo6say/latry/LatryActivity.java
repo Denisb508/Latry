@@ -65,6 +65,7 @@ public class LatryActivity extends QtActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
         focusChangeListener = new AudioManager.OnAudioFocusChangeListener() {
             @Override
             public void onAudioFocusChange(int focusChange) {
@@ -311,6 +312,18 @@ public class LatryActivity extends QtActivity {
         Log.d(TAG, "Activity paused");
         // Notify C++ about activity pause for PTT release
         notifyActivityPaused();
+
+        // Refresh the floating talker overlay after the Activity enters background.
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                VoipBackgroundService service = VoipBackgroundService.getInstance();
+                if (service != null) {
+                    service.refreshTalkerOverlay();
+                }
+            }
+        }, 150);
+
         // Don't abandon audio focus here - let the app decide
     }
 

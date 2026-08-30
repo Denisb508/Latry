@@ -429,10 +429,9 @@ void ReflectorClient::onTcpReadyRead()
                 }
             }
 
-            if (!nodes.isEmpty()) {
-                emit connectedNodesChanged(nodes);
-                qDebug() << "Connected nodes:" << nodes;
-            }
+            m_connectedNodes = nodes;
+            emit connectedNodesChanged(m_connectedNodes);
+            qDebug() << "Connected nodes:" << m_connectedNodes;
             break;
         }
         case Svxlink::MsgType::NODE_JOINED: {
@@ -443,6 +442,12 @@ void ReflectorClient::onTcpReadyRead()
             }
 
             qDebug() << "Node joined:" << callsign;
+
+            if (!m_connectedNodes.contains(callsign, Qt::CaseInsensitive)) {
+                m_connectedNodes.append(callsign);
+                emit connectedNodesChanged(m_connectedNodes);
+            }
+
             emit nodeJoined(callsign);
             break;
         }
@@ -454,6 +459,14 @@ void ReflectorClient::onTcpReadyRead()
             }
 
             qDebug() << "Node left:" << callsign;
+
+            for (int i = m_connectedNodes.size() - 1; i >= 0; --i) {
+                if (m_connectedNodes.at(i).compare(callsign, Qt::CaseInsensitive) == 0) {
+                    m_connectedNodes.removeAt(i);
+                }
+            }
+
+            emit connectedNodesChanged(m_connectedNodes);
             emit nodeLeft(callsign);
             break;
         }

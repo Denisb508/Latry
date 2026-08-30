@@ -45,6 +45,7 @@ class ReflectorClient : public QObject
     Q_PROPERTY(bool pttActive READ pttActive NOTIFY pttActiveChanged)
     Q_PROPERTY(QString currentTalker READ currentTalker NOTIFY currentTalkerChanged)
     Q_PROPERTY(QString currentTalkerName READ currentTalkerName NOTIFY currentTalkerNameChanged)
+    Q_PROPERTY(QStringList connectedNodes READ connectedNodes NOTIFY connectedNodesChanged)
     Q_PROPERTY(QString txTimeString READ txTimeString NOTIFY txTimeStringChanged)
     Q_PROPERTY(bool isDisconnected READ isDisconnected NOTIFY connectionStatusChanged)
     Q_PROPERTY(bool audioReady READ audioReady NOTIFY audioReadyChanged)
@@ -108,6 +109,7 @@ public:
     bool pttActive() const;
     QString currentTalker() const;
     QString currentTalkerName() const;
+    QStringList connectedNodes() const { return m_connectedNodes; }
     QString txTimeString() const;
     bool isDisconnected() const { return m_state == Disconnected; }
     bool audioReady() const { return m_audioReady; }
@@ -545,6 +547,7 @@ private:
     AudioEngine* m_audioEngine = nullptr;
     QThread* m_audioThread = nullptr;
 
+    QStringList m_connectedNodes;
     QString m_currentTalker;
     quint16 m_lastAudioSeq = 0;
     bool m_isReceivingAudio = false;

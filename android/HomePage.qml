@@ -97,6 +97,16 @@ Page {
         result.sort()
         return result
     }
+    function syncReflectorUsers() {
+        if (page.reflectorClient.isDisconnected) {
+            page.reflectorUsers = []
+            return
+        }
+
+        page.reflectorUsers =
+            page.normalizedReflectorUsers(page.reflectorClient.connectedNodes)
+    }
+
     function addReflectorUser(callsign) {
         const cs = String(callsign || "").trim().toUpperCase()
         const next = reflectorUsers.slice()
@@ -257,6 +267,13 @@ Page {
     }
 
     Timer {
+        interval: 1
+        repeat: false
+        running: true
+        onTriggered: page.syncReflectorUsers()
+    }
+
+    Timer {
         interval: 15000
         repeat: true
         running: page.showFrnUsers
@@ -277,6 +294,10 @@ Page {
 
         function onNodeLeft(callsign) {
             page.removeReflectorUser(callsign)
+        }
+
+        function onIsDisconnectedChanged() {
+            page.syncReflectorUsers()
         }
     }
 
@@ -309,7 +330,7 @@ Page {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 text: qsTr("Latry by OB508")
-                font.pixelSize: page.compactMode ? 18 : 21
+                font.pixelSize: page.compactMode ? 14 : 16
                 font.bold: true
             }
 
@@ -350,7 +371,10 @@ Page {
                 anchors.right: settingsButton.left
                 anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
-                text: page.compactMode ? qsTr("Admin") : qsTr("Administracija")
+                text: "A"
+                implicitWidth: page.compactMode ? 32 : 36
+                leftPadding: 6
+                rightPadding: 6
                 Accessible.name: qsTr("Open Latry administration")
                 onClicked: page.openAdminRequested()
             }

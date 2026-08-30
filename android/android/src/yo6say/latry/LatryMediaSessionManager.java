@@ -233,6 +233,10 @@ public final class LatryMediaSessionManager {
         return mediaSession.getController();
     }
 
+    public void refreshTalkerOverlay() {
+        syncTalkerOverlay();
+    }
+
     private void syncTalkerOverlay() {
         if (isConnected && isReceiving && !isTransmitting && !currentTalker.isEmpty()) {
             talkerOverlayManager.showTalker(currentTalker, currentTalkgroup);

@@ -1009,6 +1009,13 @@ public class VoipBackgroundService extends QtServiceBase {
         dispatchAndroidControlEventCallback(eventType);
     }
     
+    public void refreshTalkerOverlay() {
+        if (mediaSessionManager != null) {
+            mediaSessionManager.refreshTalkerOverlay();
+        }
+        syncForegroundState();
+    }
+
     // Static methods for Qt application integration
     public static VoipBackgroundService getInstance() {
         return instance;

@@ -102,6 +102,11 @@ void ReflectorClient::transitionToDisconnectedState(const QString &status, bool 
     m_tcpBuffer.clear();
     m_udpSocket->close();
 
+    if (!m_connectedNodes.isEmpty()) {
+        m_connectedNodes.clear();
+        emit connectedNodesChanged(m_connectedNodes);
+    }
+
     if (!m_currentTalker.isEmpty()) {
         m_currentTalker.clear();
         emit currentTalkerChanged();
