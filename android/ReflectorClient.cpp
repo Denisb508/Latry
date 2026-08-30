@@ -29,6 +29,8 @@
 #include <QJsonValue>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QNetworkRequest>
+#include <QUrl>
 #include <QLocale>
 #include <algorithm>
 #include <optional>
@@ -528,6 +530,31 @@ void ReflectorClient::prepareForShutdown()
         m_nameReply = nullptr;
     }
 
+    auto abortPortalReply = [this](QNetworkReply *&reply) {
+        if (!reply)
+            return;
+
+        QObject::disconnect(reply, nullptr, this, nullptr);
+        reply->abort();
+        reply->deleteLater();
+        reply = nullptr;
+    };
+
+    abortPortalReply(m_portalAccessReply);
+    abortPortalReply(m_portalEnrollReply);
+    abortPortalReply(m_portalAdminUsersReply);
+    abortPortalReply(m_portalAdminGroupsReply);
+    abortPortalReply(m_portalAdminSourcesReply);
+    abortPortalReply(m_portalAdminTokensReply);
+    abortPortalReply(m_portalAdminGroupOptionsReply);
+    abortPortalReply(m_portalAdminUserSaveReply);
+    abortPortalReply(m_portalAdminUserDeleteReply);
+    abortPortalReply(m_portalAdminGroupSaveReply);
+    abortPortalReply(m_portalAdminGroupDeleteReply);
+    abortPortalReply(m_portalAdminSourceSaveReply);
+    abortPortalReply(m_portalAdminSourceDeleteReply);
+    abortPortalReply(m_portalAdminTokenRevokeReply);
+
     // Shut down the audio thread with a tight timeout. Background ANR threshold
     // on Android 14+ is ~5 s; keep the total prepareForShutdown() time well
     // under that. If the thread cannot exit in 500 ms it is stuck — terminate it.
@@ -825,6 +852,2151 @@ void ReflectorClient::setPttHangTimeMs(int milliseconds)
             m_pttHangTimer->start(m_pttHangTimeMs);
         }
     }
+}
+
+
+bool ReflectorClient::hasPortalToken() const
+{
+#if defined(Q_OS_ANDROID)
+    const QJniObject context = androidQtContext();
+    if (!context.isValid())
+        return false;
+
+    return QJniObject::callStaticMethod<jboolean>(
+        "yo6say/latry/LatryPortalTokenStore",
+        "hasToken",
+        "(Landroid/content/Context;)Z",
+        context.object());
+#else
+    return false;
+#endif
+}
+
+bool ReflectorClient::savePortalToken(const QString &token)
+{
+#if defined(Q_OS_ANDROID)
+    const QJniObject context = androidQtContext();
+    if (!context.isValid())
+        return false;
+
+    const QJniObject tokenObject =
+        QJniObject::fromString(token.trimmed());
+
+    const bool saved =
+        QJniObject::callStaticMethod<jboolean>(
+            "yo6say/latry/LatryPortalTokenStore",
+            "saveToken",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            context.object(),
+            tokenObject.object<jstring>());
+
+    if (saved)
+        refreshPortalAccess();
+
+    return saved;
+#else
+    Q_UNUSED(token);
+    return false;
+#endif
+}
+
+void ReflectorClient::clearPortalToken()
+{
+#if defined(Q_OS_ANDROID)
+    const QJniObject context = androidQtContext();
+
+    if (context.isValid()) {
+        QJniObject::callStaticMethod<void>(
+            "yo6say/latry/LatryPortalTokenStore",
+            "clearToken",
+            "(Landroid/content/Context;)V",
+            context.object());
+    }
+
+    auto abortPortalReply = [this](QNetworkReply *&reply) {
+        if (!reply)
+            return;
+
+        QObject::disconnect(reply, nullptr, this, nullptr);
+        reply->abort();
+        reply->deleteLater();
+        reply = nullptr;
+    };
+
+    abortPortalReply(m_portalAccessReply);
+    abortPortalReply(m_portalEnrollReply);
+    abortPortalReply(m_portalAdminUsersReply);
+    abortPortalReply(m_portalAdminGroupsReply);
+    abortPortalReply(m_portalAdminSourcesReply);
+    abortPortalReply(m_portalAdminTokensReply);
+    abortPortalReply(m_portalAdminGroupOptionsReply);
+    abortPortalReply(m_portalAdminUserSaveReply);
+    abortPortalReply(m_portalAdminUserDeleteReply);
+    abortPortalReply(m_portalAdminGroupSaveReply);
+    abortPortalReply(m_portalAdminGroupDeleteReply);
+    abortPortalReply(m_portalAdminSourceSaveReply);
+    abortPortalReply(m_portalAdminSourceDeleteReply);
+    abortPortalReply(m_portalAdminTokenRevokeReply);
+
+    m_portalAccessLoading = false;
+    m_hasAdminAccess = false;
+    m_portalCapabilities.clear();
+
+    m_portalAdminUsers.clear();
+    m_portalAdminGroups.clear();
+    m_portalAdminSources.clear();
+    m_portalAdminTokens.clear();
+    m_portalAdminGroupSources.clear();
+    m_portalAdminGroupCapabilities.clear();
+
+    emit portalAccessChanged();
+    emit portalAdminUsersChanged();
+    emit portalAdminGroupsChanged();
+    emit portalAdminSourcesChanged();
+    emit portalAdminTokensChanged();
+    emit portalAdminGroupOptionsChanged();
+#endif
+}
+
+
+void ReflectorClient::refreshPortalAdminUsers()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminUsers.clear();
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_USER_MANAGE"))) {
+        emit portalAdminUsersChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminUsersChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminUsersChanged();
+        return;
+    }
+
+    if (m_portalAdminUsersReply) {
+        m_portalAdminUsersReply->abort();
+        m_portalAdminUsersReply->deleteLater();
+        m_portalAdminUsersReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_users.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminUsersReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminUsersReply == reply)
+                m_portalAdminUsersReply = nullptr;
+
+            m_portalAdminUsers.clear();
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+
+                    const QJsonArray users =
+                        document.object()
+                            .value(QStringLiteral("users"))
+                            .toArray();
+
+                    for (const QJsonValue &value : users) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject user = value.toObject();
+
+                        QVariantMap item;
+                        item.insert(
+                            QStringLiteral("id"),
+                            user.value(QStringLiteral("id")).toInt()
+                        );
+                        item.insert(
+                            QStringLiteral("callsign"),
+                            user.value(QStringLiteral("callsign")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("enabled"),
+                            user.value(QStringLiteral("enabled")).toBool()
+                        );
+                        item.insert(
+                            QStringLiteral("active_tokens"),
+                            user.value(QStringLiteral("active_tokens")).toInt()
+                        );
+
+                        QStringList groups;
+                        const QJsonArray groupArray =
+                            user.value(QStringLiteral("groups")).toArray();
+
+                        for (const QJsonValue &group : groupArray)
+                            groups.append(group.toString());
+
+                        item.insert(
+                            QStringLiteral("groups"),
+                            groups
+                        );
+
+                        m_portalAdminUsers.append(item);
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry admin users request failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+            emit portalAdminUsersChanged();
+        }
+    );
+
+#else
+    m_portalAdminUsers.clear();
+    emit portalAdminUsersChanged();
+#endif
+}
+
+
+void ReflectorClient::refreshPortalAdminGroups()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminGroups.clear();
+
+    const bool allowed =
+        m_portalCapabilities.contains(QStringLiteral("APP_GROUP_MANAGE")) ||
+        m_portalCapabilities.contains(QStringLiteral("APP_USER_MANAGE"));
+
+    if (!allowed) {
+        emit portalAdminGroupsChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminGroupsChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGroupsChanged();
+        return;
+    }
+
+    if (m_portalAdminGroupsReply) {
+        m_portalAdminGroupsReply->abort();
+        m_portalAdminGroupsReply->deleteLater();
+        m_portalAdminGroupsReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_groups.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminGroupsReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminGroupsReply == reply)
+                m_portalAdminGroupsReply = nullptr;
+
+            m_portalAdminGroups.clear();
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+
+                    const QJsonArray groups =
+                        document.object()
+                            .value(QStringLiteral("groups"))
+                            .toArray();
+
+                    for (const QJsonValue &value : groups) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject group = value.toObject();
+
+                        QVariantMap item;
+                        item.insert(
+                            QStringLiteral("id"),
+                            group.value(QStringLiteral("id")).toInt()
+                        );
+                        item.insert(
+                            QStringLiteral("code"),
+                            group.value(QStringLiteral("code")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("name"),
+                            group.value(QStringLiteral("name")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("enabled"),
+                            group.value(QStringLiteral("enabled")).toBool()
+                        );
+                        item.insert(
+                            QStringLiteral("members"),
+                            group.value(QStringLiteral("members")).toInt()
+                        );
+
+                        QStringList sources;
+                        const QJsonArray sourceArray =
+                            group.value(QStringLiteral("sources")).toArray();
+
+                        for (const QJsonValue &source : sourceArray)
+                            sources.append(source.toString());
+
+                        item.insert(
+                            QStringLiteral("sources"),
+                            sources
+                        );
+
+                        QStringList capabilities;
+                        const QJsonArray capabilityArray =
+                            group.value(QStringLiteral("capabilities")).toArray();
+
+                        for (const QJsonValue &capability : capabilityArray)
+                            capabilities.append(capability.toString());
+
+                        item.insert(
+                            QStringLiteral("capabilities"),
+                            capabilities
+                        );
+
+                        m_portalAdminGroups.append(item);
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry admin groups request failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+            emit portalAdminGroupsChanged();
+        }
+    );
+
+#else
+    m_portalAdminGroups.clear();
+    emit portalAdminGroupsChanged();
+#endif
+}
+
+
+
+
+void ReflectorClient::refreshPortalAdminSources()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminSources.clear();
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_SOURCE_MANAGE"))) {
+        emit portalAdminSourcesChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminSourcesChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminSourcesChanged();
+        return;
+    }
+
+    if (m_portalAdminSourcesReply) {
+        m_portalAdminSourcesReply->abort();
+        m_portalAdminSourcesReply->deleteLater();
+        m_portalAdminSourcesReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_sources.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminSourcesReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminSourcesReply == reply)
+                m_portalAdminSourcesReply = nullptr;
+
+            m_portalAdminSources.clear();
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+
+                    const QJsonArray sources =
+                        document.object()
+                            .value(QStringLiteral("sources"))
+                            .toArray();
+
+                    for (const QJsonValue &value : sources) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject source = value.toObject();
+
+                        QVariantMap item;
+
+                        item.insert(
+                            QStringLiteral("id"),
+                            source.value(QStringLiteral("id")).toInt()
+                        );
+                        item.insert(
+                            QStringLiteral("code"),
+                            source.value(QStringLiteral("code")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("name"),
+                            source.value(QStringLiteral("name")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("type"),
+                            source.value(QStringLiteral("type")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("endpoint"),
+                            source.value(QStringLiteral("endpoint")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("enabled"),
+                            source.value(QStringLiteral("enabled")).toBool()
+                        );
+                        item.insert(
+                            QStringLiteral("sort_order"),
+                            source.value(QStringLiteral("sort_order")).toInt()
+                        );
+                        item.insert(
+                            QStringLiteral("group_count"),
+                            source.value(QStringLiteral("group_count")).toInt()
+                        );
+
+                        m_portalAdminSources.append(item);
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry admin sources request failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+            emit portalAdminSourcesChanged();
+        }
+    );
+
+#else
+    m_portalAdminSources.clear();
+    emit portalAdminSourcesChanged();
+#endif
+}
+
+
+void ReflectorClient::savePortalAdminSource(
+    const QString &code,
+    const QString &name,
+    const QString &type,
+    const QString &endpoint,
+    bool enabled,
+    int sortOrder)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_SOURCE_MANAGE"))) {
+        emit portalAdminSourceSaveFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminSourceSaveFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminSourceSaveFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminSourceSaveReply) {
+        m_portalAdminSourceSaveReply->abort();
+        m_portalAdminSourceSaveReply->deleteLater();
+        m_portalAdminSourceSaveReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("code"), code.trimmed().toUpper());
+    payload.insert(QStringLiteral("name"), name.trimmed());
+    payload.insert(QStringLiteral("type"), type.trimmed().toLower());
+    payload.insert(QStringLiteral("endpoint"), endpoint.trimmed());
+    payload.insert(QStringLiteral("enabled"), enabled);
+    payload.insert(QStringLiteral("sort_order"), sortOrder);
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_source_save.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminSourceSaveReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminSourceSaveReply == reply)
+                m_portalAdminSourceSaveReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral("Vir je shranjen.");
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral("Shranjevanje vira ni uspelo.");
+            }
+
+            reply->deleteLater();
+
+            if (success) {
+                refreshPortalAdminSources();
+                refreshPortalAdminGroups();
+            }
+
+            emit portalAdminSourceSaveFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(code)
+    Q_UNUSED(name)
+    Q_UNUSED(type)
+    Q_UNUSED(endpoint)
+    Q_UNUSED(enabled)
+    Q_UNUSED(sortOrder)
+
+    emit portalAdminSourceSaveFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+
+void ReflectorClient::deletePortalAdminSource(
+    const QString &code)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_SOURCE_MANAGE"))) {
+        emit portalAdminSourceDeleteFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminSourceDeleteFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminSourceDeleteFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminSourceDeleteReply) {
+        m_portalAdminSourceDeleteReply->abort();
+        m_portalAdminSourceDeleteReply->deleteLater();
+        m_portalAdminSourceDeleteReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("code"),
+        code.trimmed().toUpper()
+    );
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_source_delete.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminSourceDeleteReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminSourceDeleteReply == reply)
+                m_portalAdminSourceDeleteReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral("Vir je preklican.");
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral("Preklic vira ni uspel.");
+            }
+
+            reply->deleteLater();
+
+            if (success) {
+                refreshPortalAdminSources();
+                refreshPortalAdminGroups();
+                refreshPortalAdminGroupOptions();
+            }
+
+            emit portalAdminSourceDeleteFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(code)
+
+    emit portalAdminSourceDeleteFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+
+void ReflectorClient::refreshPortalAdminTokens()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminTokens.clear();
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_TOKEN_MANAGE"))) {
+        emit portalAdminTokensChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminTokensChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminTokensChanged();
+        return;
+    }
+
+    if (m_portalAdminTokensReply) {
+        m_portalAdminTokensReply->abort();
+        m_portalAdminTokensReply->deleteLater();
+        m_portalAdminTokensReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_tokens.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminTokensReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminTokensReply == reply)
+                m_portalAdminTokensReply = nullptr;
+
+            m_portalAdminTokens.clear();
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+
+                    const QJsonArray tokens =
+                        document.object()
+                            .value(QStringLiteral("tokens"))
+                            .toArray();
+
+                    for (const QJsonValue &value : tokens) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject token = value.toObject();
+
+                        QVariantMap item;
+
+                        item.insert(
+                            QStringLiteral("id"),
+                            token.value(QStringLiteral("id")).toInt()
+                        );
+                        item.insert(
+                            QStringLiteral("callsign"),
+                            token.value(QStringLiteral("callsign")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("label"),
+                            token.value(QStringLiteral("label")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("device_id"),
+                            token.value(QStringLiteral("device_id")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("current_token"),
+                            token.value(QStringLiteral("current_token")).toBool()
+                        );
+                        item.insert(
+                            QStringLiteral("created_at"),
+                            token.value(QStringLiteral("created_at")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("last_used_at"),
+                            token.value(QStringLiteral("last_used_at")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("expires_at"),
+                            token.value(QStringLiteral("expires_at")).toString()
+                        );
+
+                        m_portalAdminTokens.append(item);
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry admin devices request failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+            emit portalAdminTokensChanged();
+        }
+    );
+
+#else
+    m_portalAdminTokens.clear();
+    emit portalAdminTokensChanged();
+#endif
+}
+
+
+void ReflectorClient::revokePortalAdminToken(int tokenId)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_TOKEN_MANAGE"))) {
+        emit portalAdminTokenRevokeFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    if (tokenId <= 0) {
+        emit portalAdminTokenRevokeFinished(
+            false,
+            QStringLiteral("Invalid token")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminTokenRevokeFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminTokenRevokeFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminTokenRevokeReply) {
+        m_portalAdminTokenRevokeReply->abort();
+        m_portalAdminTokenRevokeReply->deleteLater();
+        m_portalAdminTokenRevokeReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("token_id"),
+        tokenId
+    );
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_token_revoke.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminTokenRevokeReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminTokenRevokeReply == reply)
+                m_portalAdminTokenRevokeReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral(
+                    "Dostop naprave je preklican."
+                );
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral(
+                        "Preklic naprave ni uspel."
+                    );
+            }
+
+            reply->deleteLater();
+
+            if (success)
+                refreshPortalAdminTokens();
+
+            emit portalAdminTokenRevokeFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(tokenId)
+
+    emit portalAdminTokenRevokeFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+void ReflectorClient::refreshPortalAdminGroupOptions()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminGroupSources.clear();
+    m_portalAdminGroupCapabilities.clear();
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_GROUP_MANAGE"))) {
+        emit portalAdminGroupOptionsChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminGroupOptionsChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGroupOptionsChanged();
+        return;
+    }
+
+    if (m_portalAdminGroupOptionsReply) {
+        m_portalAdminGroupOptionsReply->abort();
+        m_portalAdminGroupOptionsReply->deleteLater();
+        m_portalAdminGroupOptionsReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_group_options.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminGroupOptionsReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminGroupOptionsReply == reply)
+                m_portalAdminGroupOptionsReply = nullptr;
+
+            m_portalAdminGroupSources.clear();
+            m_portalAdminGroupCapabilities.clear();
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+
+                    const QJsonObject root = document.object();
+
+                    const QJsonArray sources =
+                        root.value(QStringLiteral("sources")).toArray();
+
+                    for (const QJsonValue &value : sources) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject source = value.toObject();
+
+                        QVariantMap item;
+                        item.insert(
+                            QStringLiteral("code"),
+                            source.value(QStringLiteral("code")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("name"),
+                            source.value(QStringLiteral("name")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("type"),
+                            source.value(QStringLiteral("type")).toString()
+                        );
+
+                        m_portalAdminGroupSources.append(item);
+                    }
+
+                    const QJsonArray capabilities =
+                        root.value(QStringLiteral("capabilities")).toArray();
+
+                    for (const QJsonValue &value : capabilities) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject capability = value.toObject();
+
+                        QVariantMap item;
+                        item.insert(
+                            QStringLiteral("code"),
+                            capability.value(QStringLiteral("code")).toString()
+                        );
+                        item.insert(
+                            QStringLiteral("name"),
+                            capability.value(QStringLiteral("name")).toString()
+                        );
+
+                        m_portalAdminGroupCapabilities.append(item);
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry admin group options request failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+            emit portalAdminGroupOptionsChanged();
+        }
+    );
+
+#else
+    m_portalAdminGroupSources.clear();
+    m_portalAdminGroupCapabilities.clear();
+    emit portalAdminGroupOptionsChanged();
+#endif
+}
+
+
+void ReflectorClient::savePortalAdminGroup(
+    const QString &code,
+    const QString &name,
+    bool enabled,
+    const QStringList &sources,
+    const QStringList &capabilities)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_GROUP_MANAGE"))) {
+        emit portalAdminGroupSaveFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminGroupSaveFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGroupSaveFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminGroupSaveReply) {
+        m_portalAdminGroupSaveReply->abort();
+        m_portalAdminGroupSaveReply->deleteLater();
+        m_portalAdminGroupSaveReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("code"),
+        code.trimmed().toUpper()
+    );
+    payload.insert(
+        QStringLiteral("name"),
+        name.trimmed()
+    );
+    payload.insert(
+        QStringLiteral("enabled"),
+        enabled
+    );
+
+    QJsonArray sourceArray;
+    for (const QString &source : sources)
+        sourceArray.append(source);
+    payload.insert(QStringLiteral("sources"), sourceArray);
+
+    QJsonArray capabilityArray;
+    for (const QString &capability : capabilities)
+        capabilityArray.append(capability);
+    payload.insert(QStringLiteral("capabilities"), capabilityArray);
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_group_save.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminGroupSaveReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminGroupSaveReply == reply)
+                m_portalAdminGroupSaveReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral("Skupina je shranjena.");
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral("Shranjevanje skupine ni uspelo.");
+            }
+
+            reply->deleteLater();
+
+            if (success)
+                refreshPortalAdminGroups();
+
+            emit portalAdminGroupSaveFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(code)
+    Q_UNUSED(name)
+    Q_UNUSED(enabled)
+    Q_UNUSED(sources)
+    Q_UNUSED(capabilities)
+
+    emit portalAdminGroupSaveFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+
+void ReflectorClient::deletePortalAdminGroup(
+    const QString &code)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_GROUP_MANAGE"))) {
+        emit portalAdminGroupDeleteFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminGroupDeleteFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGroupDeleteFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminGroupDeleteReply) {
+        m_portalAdminGroupDeleteReply->abort();
+        m_portalAdminGroupDeleteReply->deleteLater();
+        m_portalAdminGroupDeleteReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("code"),
+        code.trimmed().toUpper()
+    );
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_group_delete.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminGroupDeleteReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminGroupDeleteReply == reply)
+                m_portalAdminGroupDeleteReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral("Skupina je preklicana.");
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral("Preklic skupine ni uspel.");
+            }
+
+            reply->deleteLater();
+
+            if (success)
+                refreshPortalAdminGroups();
+
+            emit portalAdminGroupDeleteFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(code)
+
+    emit portalAdminGroupDeleteFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+void ReflectorClient::savePortalAdminUser(
+    const QString &callsign,
+    bool enabled,
+    const QStringList &groups)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_USER_MANAGE"))) {
+        emit portalAdminUserSaveFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminUserSaveFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminUserSaveFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminUserSaveReply) {
+        m_portalAdminUserSaveReply->abort();
+        m_portalAdminUserSaveReply->deleteLater();
+        m_portalAdminUserSaveReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("callsign"),
+        callsign.trimmed().toUpper()
+    );
+    payload.insert(
+        QStringLiteral("enabled"),
+        enabled
+    );
+
+    QJsonArray groupArray;
+    for (const QString &group : groups)
+        groupArray.append(group);
+
+    payload.insert(
+        QStringLiteral("groups"),
+        groupArray
+    );
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_user_save.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminUserSaveReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminUserSaveReply == reply)
+                m_portalAdminUserSaveReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            bool success = false;
+            QString message;
+
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral("Uporabnik je shranjen.");
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral("Shranjevanje ni uspelo.");
+            }
+
+            reply->deleteLater();
+
+            if (success)
+                refreshPortalAdminUsers();
+
+            emit portalAdminUserSaveFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(callsign)
+    Q_UNUSED(enabled)
+    Q_UNUSED(groups)
+
+    emit portalAdminUserSaveFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+
+void ReflectorClient::deletePortalAdminUser(
+    const QString &callsign)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_USER_MANAGE"))) {
+        emit portalAdminUserDeleteFinished(
+            false,
+            QStringLiteral("Permission denied")
+        );
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminUserDeleteFinished(
+            false,
+            QStringLiteral("Android context unavailable")
+        );
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminUserDeleteFinished(
+            false,
+            QStringLiteral("Portal token unavailable")
+        );
+        return;
+    }
+
+    if (m_portalAdminUserDeleteReply) {
+        m_portalAdminUserDeleteReply->abort();
+        m_portalAdminUserDeleteReply->deleteLater();
+        m_portalAdminUserDeleteReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(
+        QStringLiteral("callsign"),
+        callsign.trimmed().toUpper()
+    );
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_user_delete.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    request.setRawHeader("Accept", "application/json");
+
+    QNetworkReply *reply = m_networkManager->post(
+        request,
+        QJsonDocument(payload).toJson(QJsonDocument::Compact)
+    );
+
+    m_portalAdminUserDeleteReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAdminUserDeleteReply == reply)
+                m_portalAdminUserDeleteReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+            const QJsonDocument document =
+                QJsonDocument::fromJson(data);
+
+            bool success = false;
+            QString message;
+
+            if (reply->error() == QNetworkReply::NoError &&
+                document.isObject() &&
+                document.object()
+                    .value(QStringLiteral("ok"))
+                    .toBool()) {
+
+                success = true;
+                message = QStringLiteral(
+                    "Uporabnik je preklican."
+                );
+
+            } else {
+
+                if (document.isObject()) {
+                    message = document.object()
+                                  .value(QStringLiteral("error"))
+                                  .toString();
+                }
+
+                if (message.isEmpty())
+                    message = QStringLiteral(
+                        "Preklic uporabnika ni uspel."
+                    );
+            }
+
+            reply->deleteLater();
+
+            if (success)
+                refreshPortalAdminUsers();
+
+            emit portalAdminUserDeleteFinished(
+                success,
+                message
+            );
+        }
+    );
+
+#else
+    Q_UNUSED(callsign)
+
+    emit portalAdminUserDeleteFinished(
+        false,
+        QStringLiteral("Unsupported platform")
+    );
+#endif
+}
+
+void ReflectorClient::ensurePortalAccess(const QString &callsign,
+                                         const QString &authKey)
+{
+#if defined(Q_OS_ANDROID)
+    const QString normalizedCallsign = callsign.trimmed().toUpper();
+    const QString normalizedAuthKey = authKey.trimmed();
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid())
+        return;
+
+    const QJniObject callsignObject =
+        QJniObject::fromString(normalizedCallsign);
+
+    const bool hasMatchingToken =
+        QJniObject::callStaticMethod<jboolean>(
+            "yo6say/latry/LatryPortalTokenStore",
+            "hasTokenForCallsign",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            context.object(),
+            callsignObject.object<jstring>());
+
+    if (hasMatchingToken) {
+        refreshPortalAccess();
+        return;
+    }
+
+    /*
+     * Stored token belongs to another callsign.
+     * Remove it before enrolling the newly selected profile.
+     */
+    if (hasPortalToken())
+        clearPortalToken();
+
+    if (normalizedCallsign.isEmpty() || normalizedAuthKey.isEmpty())
+        return;
+
+    const QJniObject deviceIdObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "getOrCreateDeviceId",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString deviceId = deviceIdObject.toString().trimmed();
+
+    if (deviceId.isEmpty())
+        return;
+
+    if (m_portalEnrollReply) {
+        QObject::disconnect(
+            m_portalEnrollReply,
+            nullptr,
+            this,
+            nullptr
+        );
+        m_portalEnrollReply->abort();
+        m_portalEnrollReply->deleteLater();
+        m_portalEnrollReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_enroll.php"
+        ))
+    );
+
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+
+    request.setRawHeader("Accept", "application/json");
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("callsign"), normalizedCallsign);
+    payload.insert(QStringLiteral("auth_key"), normalizedAuthKey);
+    payload.insert(QStringLiteral("device_id"), deviceId);
+    payload.insert(QStringLiteral("label"), QStringLiteral("Latry Android"));
+
+    const QByteArray body =
+        QJsonDocument(payload).toJson(QJsonDocument::Compact);
+
+    QNetworkReply *reply =
+        m_networkManager->post(request, body);
+
+    m_portalEnrollReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, normalizedCallsign]() {
+
+            if (m_portalEnrollReply == reply)
+                m_portalEnrollReply = nullptr;
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(data);
+
+                if (document.isObject()) {
+                    const QString token =
+                        document.object()
+                            .value(QStringLiteral("token"))
+                            .toString()
+                            .trimmed();
+
+                    if (!token.isEmpty()) {
+                        const QJniObject context = androidQtContext();
+
+                        if (context.isValid()) {
+                            const QJniObject callsignObject =
+                                QJniObject::fromString(normalizedCallsign);
+
+                            const QJniObject tokenObject =
+                                QJniObject::fromString(token);
+
+                            const bool saved =
+                                QJniObject::callStaticMethod<jboolean>(
+                                    "yo6say/latry/LatryPortalTokenStore",
+                                    "saveTokenForCallsign",
+                                    "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
+                                    context.object(),
+                                    callsignObject.object<jstring>(),
+                                    tokenObject.object<jstring>());
+
+                            if (saved)
+                                refreshPortalAccess();
+                        }
+                    }
+                }
+            } else {
+                qWarning()
+                    << "Latry portal enrollment failed:"
+                    << reply->attribute(
+                           QNetworkRequest::HttpStatusCodeAttribute
+                       ).toInt();
+            }
+
+            reply->deleteLater();
+        }
+    );
+#else
+    Q_UNUSED(callsign);
+    Q_UNUSED(authKey);
+#endif
+}
+
+void ReflectorClient::refreshPortalAccess()
+{
+#if defined(Q_OS_ANDROID)
+    if (!m_networkManager)
+        return;
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid())
+        return;
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        m_portalAccessLoading = false;
+        m_hasAdminAccess = false;
+        m_portalCapabilities.clear();
+        emit portalAccessChanged();
+        return;
+    }
+
+    if (m_portalAccessReply) {
+        QObject::disconnect(
+            m_portalAccessReply,
+            nullptr,
+            this,
+            nullptr
+        );
+        m_portalAccessReply->abort();
+        m_portalAccessReply->deleteLater();
+        m_portalAccessReply = nullptr;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_access.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+
+    request.setRawHeader(
+        "Accept",
+        "application/json"
+    );
+
+    m_portalAccessLoading = true;
+    emit portalAccessChanged();
+
+    QNetworkReply *reply =
+        m_networkManager->get(request);
+
+    m_portalAccessReply = reply;
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply]() {
+
+            if (m_portalAccessReply == reply)
+                m_portalAccessReply = nullptr;
+
+            m_portalAccessLoading = false;
+            m_hasAdminAccess = false;
+            m_portalCapabilities.clear();
+
+            if (!reply) {
+                emit portalAccessChanged();
+                return;
+            }
+
+            const QByteArray data = reply->readAll();
+
+            if (reply->error() == QNetworkReply::NoError) {
+
+                QJsonParseError parseError;
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(
+                        data,
+                        &parseError
+                    );
+
+                if (parseError.error ==
+                        QJsonParseError::NoError
+                        && document.isObject()) {
+
+                    const QJsonArray capabilities =
+                        document.object()
+                            .value(QStringLiteral(
+                                "capabilities"
+                            ))
+                            .toArray();
+
+                    for (const QJsonValue &value :
+                         capabilities) {
+
+                        const QString capability =
+                            value.toString().trimmed();
+
+                        if (capability.isEmpty())
+                            continue;
+
+                        m_portalCapabilities.append(
+                            capability
+                        );
+
+                        if (capability.startsWith(
+                                QStringLiteral("APP_"))
+                            && capability.endsWith(
+                                QStringLiteral("_MANAGE"))) {
+
+                            m_hasAdminAccess = true;
+                        }
+                    }
+                }
+
+            } else {
+                qWarning()
+                    << "Latry portal access request failed:"
+                    << reply->errorString();
+            }
+
+            reply->deleteLater();
+
+            emit portalAccessChanged();
+        }
+    );
+
+#else
+    m_portalAccessLoading = false;
+    m_hasAdminAccess = false;
+    m_portalCapabilities.clear();
+    emit portalAccessChanged();
+#endif
 }
 
 void ReflectorClient::setHardwarePttEnabled(bool enabled)

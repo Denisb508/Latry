@@ -573,6 +573,11 @@ Window {
             selectedProfile.tgSelectTimeout
         )
 
+        ReflectorClient.ensurePortalAccess(
+            selectedProfile.callsign,
+            selectedProfile.authKey
+        )
+
         ReflectorClient.connectToServer(
             selectedProfile.host,
             selectedProfile.port,
@@ -816,12 +821,101 @@ Window {
             showFrnUsers: saved.showFrnUsers
 
             onOpenSettingsRequested: stackView.push(settingsPageComponent)
+            onOpenAdminRequested: stackView.push(adminPageComponent)
             onOpenProfileSwitcherRequested: quickProfileDialog.open()
             onOpenTalkgroupSwitcherRequested: quickTalkgroupDialog.open()
             onConnectRequested: window.connectSelectedProfile()
             onDisconnectRequested: ReflectorClient.disconnectFromServer()
             onShutdownRequested: window.shutdownApplication()
             onPttRequested: ReflectorClient.togglePtt()
+        }
+    }
+
+    Component {
+        id: adminPageComponent
+
+        AdminPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            surfaceColor: window.surfaceColor
+            borderColor: window.borderColor
+            accentColor: window.accentColor
+            portalCapabilities: ReflectorClient.portalCapabilities
+
+            onBackRequested: stackView.pop()
+            onUsersRequested: stackView.push(adminUsersPageComponent)
+            onGroupsRequested: stackView.push(adminGroupsPageComponent)
+            onSourcesRequested: stackView.push(adminSourcesPageComponent)
+            onDevicesRequested: stackView.push(adminDevicesPageComponent)
+        }
+    }
+
+    Component {
+        id: adminDevicesPageComponent
+
+        AdminDevicesPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
+        }
+    }
+
+    Component {
+        id: adminSourcesPageComponent
+
+        AdminSourcesPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
+        }
+    }
+
+    Component {
+        id: adminGroupsPageComponent
+
+        AdminGroupsPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
+        }
+    }
+
+    Component {
+        id: adminUsersPageComponent
+
+        AdminUsersPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            accentColor: window.accentColor
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
         }
     }
 

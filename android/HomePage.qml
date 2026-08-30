@@ -41,6 +41,7 @@ Page {
     readonly property string frnStatusUrl: "https://svxportal.pmr446.si/frn_users.json"
 
     signal openSettingsRequested()
+    signal openAdminRequested()
     signal openProfileSwitcherRequested()
     signal openTalkgroupSwitcherRequested()
     signal connectRequested()
@@ -68,12 +69,21 @@ Page {
         return talkgroup === 0 ? qsTr("Monitor Mode") : qsTr("TG %1").arg(talkgroup)
     }
 
+    function isHiddenGatewayCallsign(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
+
+        return cs === "327FRSSLO"
+                || cs === "327FRSOBALA"
+    }
+
     function normalizedReflectorUsers(nodes) {
         const result = []
         if (nodes && Array.isArray(nodes)) {
             for (let i = 0; i < nodes.length; ++i) {
                 const cs = String(nodes[i] || "").trim().toUpperCase()
-                if (cs.length > 0 && result.indexOf(cs) < 0)
+                if (cs.length > 0
+                        && !page.isHiddenGatewayCallsign(cs)
+                        && result.indexOf(cs) < 0)
                     result.push(cs)
             }
         }
@@ -90,7 +100,9 @@ Page {
     function addReflectorUser(callsign) {
         const cs = String(callsign || "").trim().toUpperCase()
         const next = reflectorUsers.slice()
-        if (cs.length === 0 || next.indexOf(cs) >= 0)
+        if (cs.length === 0
+                || page.isHiddenGatewayCallsign(cs)
+                || next.indexOf(cs) >= 0)
             return
         next.push(cs)
         next.sort()
@@ -120,7 +132,10 @@ Page {
                 continue
 
             const display = String(value.display || value.callsign || value.name || value.user || "").trim()
-            if (display.length === 0)
+            const callsign = String(value.callsign || display).trim().toUpperCase()
+
+            if (display.length === 0
+                    || page.isHiddenGatewayCallsign(callsign))
                 continue
 
             let statusColor = String(value.status_color || "gray").trim().toLowerCase()
@@ -294,7 +309,7 @@ Page {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 text: qsTr("Latry by OB508")
-                font.pixelSize: page.uiMetrics.titleFontSize
+                font.pixelSize: page.compactMode ? 18 : 21
                 font.bold: true
             }
 
@@ -326,6 +341,18 @@ Page {
                     border.width: 1
                 }
                 onClicked: page.shutdownRequested()
+            }
+
+            Button {
+                id: adminButton
+
+                visible: page.reflectorClient.hasAdminAccess
+                anchors.right: settingsButton.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                text: page.compactMode ? qsTr("Admin") : qsTr("Administracija")
+                Accessible.name: qsTr("Open Latry administration")
+                onClicked: page.openAdminRequested()
             }
 
             Button {
@@ -387,7 +414,7 @@ Page {
 
                         Label {
                             text: qsTr("Aktivnosti na prehodih")
-                            font.pixelSize: Math.max(13, page.uiMetrics.captionFontSize + 1)
+                            font.pixelSize: page.compactMode ? 12 : 13
                             font.bold: true
                             color: "#0f172a"
                         }
@@ -396,18 +423,37 @@ Page {
                             visible: page.showReflectorUsers
                             Layout.fillWidth: true
                             text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
-                            font.pixelSize: page.uiMetrics.captionFontSize
+                            font.pixelSize: page.compactMode ? 11 : page.uiMetrics.captionFontSize
                             font.bold: true
                             color: "#334155"
                         }
 
-                        Flow {
-                            visible: page.showReflectorUsers
-                            Layout.fillWidth: true
-                            spacing: 6
+                        Flickable {
+                            id: reflectorUsersFlick
 
-                            Repeater {
-                                model: page.reflectorUsers
+                            visible: page.showReflectorUsers
+                                     && page.reflectorUsers.length > 0
+                            Layout.fillWidth: true
+                            Layout.preferredHeight:
+                                reflectorUsersRow.implicitHeight
+                                + (contentWidth > width ? 8 : 0)
+
+                            clip: true
+                            contentWidth: reflectorUsersRow.implicitWidth
+                            contentHeight: reflectorUsersRow.implicitHeight
+                            flickableDirection: Flickable.HorizontalFlick
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            ScrollBar.horizontal: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
+
+                            Row {
+                                id: reflectorUsersRow
+                                spacing: 6
+
+                                Repeater {
+                                    model: page.reflectorUsers
                                 delegate: Rectangle {
                                     required property string modelData
                                     readonly property bool isTalking:
@@ -427,6 +473,7 @@ Page {
                                         font.bold: true
                                     }
                                 }
+                            }
                             }
                         }
 
@@ -471,12 +518,30 @@ Page {
                                     color: modelData.online ? "#475569" : "#94a3b8"
                                 }
 
-                                Flow {
-                                    Layout.fillWidth: true
-                                    spacing: 6
+                                Flickable {
+                                    id: frnUsersFlick
 
-                                    Repeater {
-                                        model: page.frnUsersForRoom(modelData.name)
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight:
+                                        frnUsersRow.implicitHeight
+                                        + (contentWidth > width ? 8 : 0)
+
+                                    clip: true
+                                    contentWidth: frnUsersRow.implicitWidth
+                                    contentHeight: frnUsersRow.implicitHeight
+                                    flickableDirection: Flickable.HorizontalFlick
+                                    boundsBehavior: Flickable.StopAtBounds
+
+                                    ScrollBar.horizontal: ScrollBar {
+                                        policy: ScrollBar.AsNeeded
+                                    }
+
+                                    Row {
+                                        id: frnUsersRow
+                                        spacing: 6
+
+                                        Repeater {
+                                            model: page.frnUsersForRoom(modelData.name)
 
                                         delegate: Rectangle {
                                             required property var modelData
@@ -502,6 +567,7 @@ Page {
                                                 font.pixelSize: page.uiMetrics.captionFontSize
                                                 font.bold: true
                                             }
+                                        }
                                         }
                                     }
                                 }

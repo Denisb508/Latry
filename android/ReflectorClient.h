@@ -90,6 +90,15 @@ class ReflectorClient : public QObject
                NOTIFY transcriptionModelDownloadStateChanged)
     Q_PROPERTY(QVariantList nodeInfoReadOnlyEntries READ nodeInfoReadOnlyEntries CONSTANT)
     Q_PROPERTY(QString softwareVersion READ softwareVersion CONSTANT)
+    Q_PROPERTY(bool portalAccessLoading READ portalAccessLoading NOTIFY portalAccessChanged)
+    Q_PROPERTY(bool hasAdminAccess READ hasAdminAccess NOTIFY portalAccessChanged)
+    Q_PROPERTY(QStringList portalCapabilities READ portalCapabilities NOTIFY portalAccessChanged)
+    Q_PROPERTY(QVariantList portalAdminUsers READ portalAdminUsers NOTIFY portalAdminUsersChanged)
+    Q_PROPERTY(QVariantList portalAdminGroups READ portalAdminGroups NOTIFY portalAdminGroupsChanged)
+    Q_PROPERTY(QVariantList portalAdminSources READ portalAdminSources NOTIFY portalAdminSourcesChanged)
+    Q_PROPERTY(QVariantList portalAdminTokens READ portalAdminTokens NOTIFY portalAdminTokensChanged)
+    Q_PROPERTY(QVariantList portalAdminGroupSources READ portalAdminGroupSources NOTIFY portalAdminGroupOptionsChanged)
+    Q_PROPERTY(QVariantList portalAdminGroupCapabilities READ portalAdminGroupCapabilities NOTIFY portalAdminGroupOptionsChanged)
 
 public:
     static ReflectorClient* instance();
@@ -133,6 +142,16 @@ public:
     QVariantList nodeInfoReadOnlyEntries() const;
     QString softwareVersion() const { return nodeInfoSoftwareVersion(); }
 
+    bool portalAccessLoading() const { return m_portalAccessLoading; }
+    bool hasAdminAccess() const { return m_hasAdminAccess; }
+    QStringList portalCapabilities() const { return m_portalCapabilities; }
+    QVariantList portalAdminUsers() const { return m_portalAdminUsers; }
+    QVariantList portalAdminGroups() const { return m_portalAdminGroups; }
+    QVariantList portalAdminSources() const { return m_portalAdminSources; }
+    QVariantList portalAdminTokens() const { return m_portalAdminTokens; }
+    QVariantList portalAdminGroupSources() const { return m_portalAdminGroupSources; }
+    QVariantList portalAdminGroupCapabilities() const { return m_portalAdminGroupCapabilities; }
+
     Q_INVOKABLE void connectToServer(const QString &host, int port, const QString &authKey, const QString &callsign,
                                      quint32 talkgroup, const QString &monitoredTalkgroups,
                                      int tgSelectTimeoutSeconds = 30);
@@ -161,6 +180,41 @@ public:
     Q_INVOKABLE void downloadTranscriptionModel(const QString &languageTag = QString());
     Q_INVOKABLE void openTranscriptionSettings();
     Q_INVOKABLE void setCustomNodeInfoEntries(const QVariantList &entries);
+
+    Q_INVOKABLE bool hasPortalToken() const;
+    Q_INVOKABLE bool savePortalToken(const QString &token);
+    Q_INVOKABLE void clearPortalToken();
+    Q_INVOKABLE void refreshPortalAccess();
+    Q_INVOKABLE void refreshPortalAdminUsers();
+    Q_INVOKABLE void refreshPortalAdminGroups();
+    Q_INVOKABLE void refreshPortalAdminSources();
+    Q_INVOKABLE void refreshPortalAdminTokens();
+    Q_INVOKABLE void revokePortalAdminToken(int tokenId);
+    Q_INVOKABLE void savePortalAdminSource(
+        const QString &code,
+        const QString &name,
+        const QString &type,
+        const QString &endpoint,
+        bool enabled,
+        int sortOrder);
+    Q_INVOKABLE void deletePortalAdminSource(
+        const QString &code);
+    Q_INVOKABLE void refreshPortalAdminGroupOptions();
+    Q_INVOKABLE void savePortalAdminGroup(
+        const QString &code,
+        const QString &name,
+        bool enabled,
+        const QStringList &sources,
+        const QStringList &capabilities);
+    Q_INVOKABLE void deletePortalAdminGroup(
+        const QString &code);
+    Q_INVOKABLE void savePortalAdminUser(
+        const QString &callsign,
+        bool enabled,
+        const QStringList &groups);
+    Q_INVOKABLE void deletePortalAdminUser(
+        const QString &callsign);
+    Q_INVOKABLE void ensurePortalAccess(const QString &callsign, const QString &authKey);
 
     void prepareForShutdown();
 
@@ -235,6 +289,33 @@ signals:
     void transcriptionAvailabilityChanged();
     void transcriptionLanguageModelsChanged();
     void transcriptionModelDownloadStateChanged();
+    void portalAccessChanged();
+    void portalAdminUsersChanged();
+    void portalAdminGroupsChanged();
+    void portalAdminSourcesChanged();
+    void portalAdminTokensChanged();
+    void portalAdminTokenRevokeFinished(
+        bool success,
+        const QString &message);
+    void portalAdminSourceSaveFinished(
+        bool success,
+        const QString &message);
+    void portalAdminSourceDeleteFinished(
+        bool success,
+        const QString &message);
+    void portalAdminGroupOptionsChanged();
+    void portalAdminGroupSaveFinished(
+        bool success,
+        const QString &message);
+    void portalAdminGroupDeleteFinished(
+        bool success,
+        const QString &message);
+    void portalAdminUserSaveFinished(
+        bool success,
+        const QString &message);
+    void portalAdminUserDeleteFinished(
+        bool success,
+        const QString &message);
     
     // New protocol signals
     void connectedNodesChanged(const QStringList &nodes);
@@ -526,6 +607,29 @@ private:
 
     QNetworkAccessManager* m_networkManager = nullptr;
     QNetworkReply* m_nameReply = nullptr;
+    QNetworkReply* m_portalAccessReply = nullptr;
+    QNetworkReply* m_portalEnrollReply = nullptr;
+    bool m_portalAccessLoading = false;
+    bool m_hasAdminAccess = false;
+    QStringList m_portalCapabilities;
+    QVariantList m_portalAdminUsers;
+    QNetworkReply* m_portalAdminUsersReply = nullptr;
+    QVariantList m_portalAdminGroups;
+    QNetworkReply* m_portalAdminGroupsReply = nullptr;
+    QVariantList m_portalAdminSources;
+    QNetworkReply* m_portalAdminSourcesReply = nullptr;
+    QVariantList m_portalAdminTokens;
+    QNetworkReply* m_portalAdminTokensReply = nullptr;
+    QNetworkReply* m_portalAdminTokenRevokeReply = nullptr;
+    QNetworkReply* m_portalAdminSourceSaveReply = nullptr;
+    QNetworkReply* m_portalAdminSourceDeleteReply = nullptr;
+    QVariantList m_portalAdminGroupSources;
+    QVariantList m_portalAdminGroupCapabilities;
+    QNetworkReply* m_portalAdminGroupOptionsReply = nullptr;
+    QNetworkReply* m_portalAdminGroupSaveReply = nullptr;
+    QNetworkReply* m_portalAdminGroupDeleteReply = nullptr;
+    QNetworkReply* m_portalAdminUserSaveReply = nullptr;
+    QNetworkReply* m_portalAdminUserDeleteReply = nullptr;
     QString m_currentTalkerName;
     bool m_androidNetworkStateKnown = false;
     bool m_hasDefaultNetwork = false;

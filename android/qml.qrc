@@ -6,6 +6,11 @@
     <file>AudioLevelMeter.qml</file>
     <file>HomePage.qml</file>
     <file>SettingsPage.qml</file>
+    <file>AdminPage.qml</file>
+    <file>AdminUsersPage.qml</file>
+    <file>AdminGroupsPage.qml</file>
+    <file>AdminSourcesPage.qml</file>
+    <file>AdminDevicesPage.qml</file>
     <file>ProfileCard.qml</file>
     <file>ProfileEditorPage.qml</file>
     <file>ProfileUtils.js</file>
