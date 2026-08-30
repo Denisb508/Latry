@@ -69,14 +69,18 @@ Page {
 
     function normalizedReflectorUsers(nodes) {
         const result = []
-        if (!nodes || !Array.isArray(nodes))
-            return result
-
-        for (let i = 0; i < nodes.length; ++i) {
-            const cs = String(nodes[i] || "").trim().toUpperCase()
-            if (cs.length > 0 && result.indexOf(cs) < 0)
-                result.push(cs)
+        if (nodes && Array.isArray(nodes)) {
+            for (let i = 0; i < nodes.length; ++i) {
+                const cs = String(nodes[i] || "").trim().toUpperCase()
+                if (cs.length > 0 && result.indexOf(cs) < 0)
+                    result.push(cs)
+            }
         }
+
+        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
+        if (ownCallsign.length > 0 && result.indexOf(ownCallsign) < 0)
+            result.push(ownCallsign)
+
         result.sort()
         return result
     }
@@ -318,7 +322,7 @@ Page {
 
                         Label {
                             text: qsTr("Aktivnosti na prehodih")
-                            font.pixelSize: page.uiMetrics.sectionTitleFontSize
+                            font.pixelSize: Math.max(13, page.uiMetrics.captionFontSize + 1)
                             font.bold: true
                             color: "#0f172a"
                         }
@@ -327,6 +331,7 @@ Page {
                             visible: page.showReflectorUsers
                             Layout.fillWidth: true
                             text: qsTr("Prijavljeni na SvxReflector (%1)").arg(page.reflectorUsers.length)
+                            font.pixelSize: page.uiMetrics.captionFontSize
                             font.bold: true
                             color: "#334155"
                         }
@@ -340,16 +345,19 @@ Page {
                                 model: page.reflectorUsers
                                 delegate: Rectangle {
                                     required property string modelData
+                                    readonly property bool isTalking:
+                                        String(page.reflectorClient.currentTalker || "").trim().toUpperCase() === modelData
                                     radius: 10
-                                    color: "#e8f5e9"
-                                    border.color: "#86c98a"
+                                    color: isTalking ? "#fee2e2" : "#e8f5e9"
+                                    border.color: isTalking ? "#ef4444" : "#86c98a"
+                                    border.width: 1
                                     implicitWidth: userLabel.implicitWidth + 18
                                     implicitHeight: userLabel.implicitHeight + 10
                                     Label {
                                         id: userLabel
                                         anchors.centerIn: parent
                                         text: "● " + modelData
-                                        color: "#216e2d"
+                                        color: parent.isTalking ? "#b91c1c" : "#216e2d"
                                         font.bold: true
                                     }
                                 }
@@ -376,6 +384,7 @@ Page {
                             visible: page.showFrnUsers
                             Layout.fillWidth: true
                             text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
+                            font.pixelSize: page.uiMetrics.captionFontSize
                             font.bold: true
                             color: "#334155"
                         }
