@@ -67,11 +67,14 @@ Page {
         return talkgroup === 0 ? qsTr("Monitor Mode") : qsTr("TG %1").arg(talkgroup)
     }
 
-    function filteredObUsers(nodes) {
+    function normalizedReflectorUsers(nodes) {
         const result = []
+        if (!nodes || !Array.isArray(nodes))
+            return result
+
         for (let i = 0; i < nodes.length; ++i) {
-            const cs = String(nodes[i]).trim().toUpperCase()
-            if (/^OB[0-9A-Z]+$/.test(cs) && result.indexOf(cs) < 0)
+            const cs = String(nodes[i] || "").trim().toUpperCase()
+            if (cs.length > 0 && result.indexOf(cs) < 0)
                 result.push(cs)
         }
         result.sort()
@@ -80,7 +83,7 @@ Page {
 
     function addReflectorUser(callsign) {
         const next = reflectorUsers.slice()
-        const filtered = filteredObUsers([callsign])
+        const filtered = normalizedReflectorUsers([callsign])
         if (filtered.length === 0 || next.indexOf(filtered[0]) >= 0)
             return
         next.push(filtered[0])
@@ -100,59 +103,24 @@ Page {
 
     function normalizedFrnUsers(items) {
         const result = []
-        const seen = {}
         if (!items || !Array.isArray(items))
             return result
 
         for (let i = 0; i < items.length; ++i) {
             const value = items[i]
-            let user
+            let label = ""
+            if (value && typeof value === "object")
+                label = String(value.display || value.callsign || value.name || value.user || "").trim()
+            else
+                label = String(value || "").trim()
 
-            if (value && typeof value === "object") {
-                const callsign = String(value.callsign || value.user || "").trim()
-                const name = String(value.name || "").trim()
-                let display = String(value.display || "").trim()
-                if (display.length === 0)
-                    display = callsign + (name.length > 0 ? ", " + name : "")
-
-                user = {
-                    display: display,
-                    callsign: callsign,
-                    name: name,
-                    city: String(value.city || "").trim(),
-                    client: String(value.client || "").trim(),
-                    state: value.state === undefined || value.state === null
-                           ? ""
-                           : String(value.state)
-                }
-            } else {
-                const label = String(value || "").trim()
-                user = {
-                    display: label,
-                    callsign: label,
-                    name: "",
-                    city: "",
-                    client: "",
-                    state: ""
-                }
-            }
-
-            if (user.display.length === 0 && user.callsign.length === 0)
-                continue
-
-            const key = String(user.callsign || user.display).toUpperCase()
-            if (seen[key])
-                continue
-            seen[key] = true
-            result.push(user)
+            if (label.length > 0 && result.indexOf(label) < 0)
+                result.push(label)
         }
 
-        result.sort(function(a, b) {
-            return String(a.callsign || a.display).localeCompare(String(b.callsign || b.display))
-        })
+        result.sort(function(a, b) { return a.localeCompare(b) })
         return result
     }
-
     function refreshFrnUsers() {
         if (!page.showFrnUsers) {
             page.frnUsers = []
@@ -216,7 +184,7 @@ Page {
         target: page.reflectorClient
 
         function onConnectedNodesChanged(nodes) {
-            page.reflectorUsers = page.filteredObUsers(nodes)
+            page.reflectorUsers = page.normalizedReflectorUsers(nodes)
         }
 
         function onNodeJoined(callsign) {
@@ -392,7 +360,7 @@ Page {
                             visible: page.showReflectorUsers && page.reflectorUsers.length === 0
                             text: page.reflectorClient.isDisconnected
                                   ? qsTr("SvxReflector ni povezan.")
-                                  : qsTr("Trenutno ni prijavljenih OB uporabnikov.")
+                                  : qsTr("Trenutno ni prijavljenih uporabnikov.")
                             color: "#64748b"
                             wrapMode: Text.WordWrap
                         }
@@ -407,7 +375,7 @@ Page {
                         Label {
                             visible: page.showFrnUsers
                             Layout.fillWidth: true
-                            text: qsTr("FRN uporabniki (%1)").arg(page.frnUsers.length)
+                            text: qsTr("FRN uporabniki (%1)").arg(page.frnServerCount)
                             font.bold: true
                             color: "#334155"
                         }
@@ -421,7 +389,7 @@ Page {
                                 model: page.frnUsers
 
                                 delegate: Rectangle {
-                                    required property var modelData
+                                    required property string modelData
                                     radius: 10
                                     color: "#e0f2fe"
                                     border.color: "#7dd3fc"
@@ -432,7 +400,7 @@ Page {
                                     Label {
                                         id: frnUserLabel
                                         anchors.centerIn: parent
-                                        text: "● " + (modelData.display || modelData.callsign || qsTr("FRN uporabnik"))
+                                        text: "● " + modelData
                                         color: "#075985"
                                         font.bold: true
                                     }
