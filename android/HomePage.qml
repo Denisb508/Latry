@@ -34,6 +34,7 @@ Page {
 
     property var reflectorUsers: []
     property var frnUsers: []
+    property var frnRooms: []
     property string frnStatusMessage: ""
     property string frnUpdated: ""
     property int frnServerCount: 0
@@ -78,25 +79,29 @@ Page {
         }
 
         const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
-        if (ownCallsign.length > 0 && result.indexOf(ownCallsign) < 0)
+        if (!page.reflectorClient.isDisconnected
+                && ownCallsign.length > 0
+                && result.indexOf(ownCallsign) < 0)
             result.push(ownCallsign)
 
         result.sort()
         return result
     }
-
     function addReflectorUser(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
         const next = reflectorUsers.slice()
-        const filtered = normalizedReflectorUsers([callsign])
-        if (filtered.length === 0 || next.indexOf(filtered[0]) >= 0)
+        if (cs.length === 0 || next.indexOf(cs) >= 0)
             return
-        next.push(filtered[0])
+        next.push(cs)
         next.sort()
         reflectorUsers = next
     }
-
     function removeReflectorUser(callsign) {
-        const cs = String(callsign).trim().toUpperCase()
+        const cs = String(callsign || "").trim().toUpperCase()
+        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
+        if (cs === ownCallsign && !page.reflectorClient.isDisconnected)
+            return
+
         const next = reflectorUsers.slice()
         const idx = next.indexOf(cs)
         if (idx >= 0) {
@@ -104,7 +109,6 @@ Page {
             reflectorUsers = next
         }
     }
-
     function normalizedFrnUsers(items) {
         const result = []
         if (!items || !Array.isArray(items))
@@ -112,17 +116,75 @@ Page {
 
         for (let i = 0; i < items.length; ++i) {
             const value = items[i]
-            let label = ""
-            if (value && typeof value === "object")
-                label = String(value.display || value.callsign || value.name || value.user || "").trim()
-            else
-                label = String(value || "").trim()
+            if (!value || typeof value !== "object")
+                continue
 
-            if (label.length > 0 && result.indexOf(label) < 0)
-                result.push(label)
+            const display = String(value.display || value.callsign || value.name || value.user || "").trim()
+            if (display.length === 0)
+                continue
+
+            let statusColor = String(value.status_color || "gray").trim().toLowerCase()
+            if (["green", "yellow", "gray"].indexOf(statusColor) < 0)
+                statusColor = "gray"
+
+            result.push({
+                display: display,
+                callsign: String(value.callsign || "").trim().toUpperCase(),
+                name: String(value.name || "").trim(),
+                room: String(value.room || "FRN").trim(),
+                statusColor: statusColor,
+                statusText: String(value.status_text || "").trim(),
+                state: Number(value.state || 0)
+            })
         }
 
-        result.sort(function(a, b) { return a.localeCompare(b) })
+        result.sort(function(a, b) {
+            const roomCmp = a.room.localeCompare(b.room)
+            return roomCmp !== 0 ? roomCmp : a.display.localeCompare(b.display)
+        })
+        return result
+    }
+
+    function normalizedFrnRooms(items, users) {
+        const result = []
+        const seen = []
+
+        if (items && Array.isArray(items)) {
+            for (let i = 0; i < items.length; ++i) {
+                const value = items[i]
+                if (!value || typeof value !== "object")
+                    continue
+                const name = String(value.name || "").trim()
+                if (name.length === 0 || seen.indexOf(name) >= 0)
+                    continue
+                seen.push(name)
+                result.push({
+                    name: name,
+                    online: value.online !== false,
+                    count: Number(value.count || 0)
+                })
+            }
+        }
+
+        if (users && Array.isArray(users)) {
+            for (let j = 0; j < users.length; ++j) {
+                const room = String(users[j].room || "FRN").trim()
+                if (seen.indexOf(room) < 0) {
+                    seen.push(room)
+                    result.push({name: room, online: true, count: 0})
+                }
+            }
+        }
+
+        return result
+    }
+
+    function frnUsersForRoom(roomName) {
+        const result = []
+        for (let i = 0; i < page.frnUsers.length; ++i) {
+            if (page.frnUsers[i].room === roomName)
+                result.push(page.frnUsers[i])
+        }
         return result
     }
     function refreshFrnUsers() {
@@ -147,6 +209,8 @@ Page {
                 const envelope = !Array.isArray(parsed) && parsed && typeof parsed === "object"
                 const users = Array.isArray(parsed) ? parsed : parsed.users
                 page.frnUsers = page.normalizedFrnUsers(users)
+                page.frnRooms = page.normalizedFrnRooms(
+                            envelope ? parsed.rooms : [], page.frnUsers)
                 page.frnServerCount = envelope && parsed.count !== undefined
                         ? Number(parsed.count)
                         : page.frnUsers.length
@@ -170,6 +234,7 @@ Page {
             refreshFrnUsers()
         else {
             frnUsers = []
+            frnRooms = []
             frnStatusMessage = ""
             frnUpdated = ""
             frnServerCount = 0
@@ -351,13 +416,14 @@ Page {
                                     color: isTalking ? "#fee2e2" : "#e8f5e9"
                                     border.color: isTalking ? "#ef4444" : "#86c98a"
                                     border.width: 1
-                                    implicitWidth: userLabel.implicitWidth + 18
-                                    implicitHeight: userLabel.implicitHeight + 10
+                                    implicitWidth: userLabel.implicitWidth + 16
+                                    implicitHeight: userLabel.implicitHeight + 8
                                     Label {
                                         id: userLabel
                                         anchors.centerIn: parent
                                         text: "● " + modelData
                                         color: parent.isTalking ? "#b91c1c" : "#216e2d"
+                                        font.pixelSize: page.uiMetrics.captionFontSize
                                         font.bold: true
                                     }
                                 }
@@ -389,29 +455,54 @@ Page {
                             color: "#334155"
                         }
 
-                        Flow {
-                            visible: page.showFrnUsers && page.frnUsers.length > 0
-                            Layout.fillWidth: true
-                            spacing: 6
+                        Repeater {
+                            model: page.showFrnUsers ? page.frnRooms : []
 
-                            Repeater {
-                                model: page.frnUsers
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 4
 
-                                delegate: Rectangle {
-                                    required property string modelData
-                                    radius: 10
-                                    color: "#e0f2fe"
-                                    border.color: "#7dd3fc"
-                                    border.width: 1
-                                    implicitWidth: frnUserLabel.implicitWidth + 18
-                                    implicitHeight: frnUserLabel.implicitHeight + 10
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("%1 (%2)").arg(modelData.name).arg(modelData.count)
+                                    font.pixelSize: page.uiMetrics.captionFontSize
+                                    font.bold: true
+                                    color: modelData.online ? "#475569" : "#94a3b8"
+                                }
 
-                                    Label {
-                                        id: frnUserLabel
-                                        anchors.centerIn: parent
-                                        text: "● " + modelData
-                                        color: "#075985"
-                                        font.bold: true
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+
+                                    Repeater {
+                                        model: page.frnUsersForRoom(modelData.name)
+
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            readonly property string statusColor: modelData.statusColor || "gray"
+                                            radius: 10
+                                            color: statusColor === "green" ? "#ecfdf5"
+                                                   : statusColor === "yellow" ? "#fffbeb"
+                                                   : "#ffffff"
+                                            border.color: statusColor === "green" ? "#86c98a"
+                                                          : statusColor === "yellow" ? "#facc15"
+                                                          : "#cbd5e1"
+                                            border.width: 1
+                                            implicitWidth: frnUserLabel.implicitWidth + 16
+                                            implicitHeight: frnUserLabel.implicitHeight + 8
+
+                                            Label {
+                                                id: frnUserLabel
+                                                anchors.centerIn: parent
+                                                text: "● " + modelData.display
+                                                color: parent.statusColor === "green" ? "#216e2d"
+                                                       : parent.statusColor === "yellow" ? "#a16207"
+                                                       : "#64748b"
+                                                font.pixelSize: page.uiMetrics.captionFontSize
+                                                font.bold: true
+                                            }
+                                        }
                                     }
                                 }
                             }
