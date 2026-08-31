@@ -42,13 +42,12 @@ Page {
     property var talkerHistory: []
     property var selectedTalkerDetails: ({})
     property var frnTalkers: ({})
+    property var portalSourceStates: ({})
     property string activityUsersTitle: ""
     property string activityUsersSource: ""
     property string activityUsersRoom: ""
     property int activityUsersTalkgroup: 0
-    readonly property string frnStatusUrl: "https://svxportal.pmr446.si/frn_users.json"
-    readonly property string frnSlovenijaTalkerUrl: "https://svxportal.pmr446.si/frn_slovenija_proxy.php"
-    readonly property string frnObalaTalkerUrl: "https://svxportal.pmr446.si/frn_obala_public_proxy.php"
+    property double lastTalkerClockMs: Date.now()
 
     signal openSettingsRequested()
     signal openAdminRequested()
@@ -75,16 +74,115 @@ Page {
                                                     && page.reflectorClient.liveTranscriptionEnabled
                                                     && page.reflectorClient.transcriptionText.length > 0
 
-    function frnTalkgroupForRoom(roomName) {
-        const room = String(roomName || "").toLowerCase()
+    function portalSourceByCode(code) {
+        const wanted = String(code || "").trim().toUpperCase()
+        const sources = page.reflectorClient.portalSources || []
 
-        if (room.indexOf("obala") >= 0)
-            return 3276
+        for (let i = 0; i < sources.length; ++i) {
+            if (String(sources[i].code || "").trim().toUpperCase() === wanted)
+                return sources[i]
+        }
 
-        if (room.indexOf("slovenija") >= 0)
-            return 327
+        return ({})
+    }
 
-        return 0
+    function refreshAuthorizedPortalSources() {
+        const sources = page.reflectorClient.portalSources || []
+
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+            const code = String(source.code || "").trim()
+            const type = String(source.type || "").trim().toLowerCase()
+            const endpoint = String(source.endpoint || "").trim()
+
+            if (!code || !endpoint || type === "svxreflector")
+                continue
+
+            page.reflectorClient.refreshPortalSource(code, endpoint)
+        }
+    }
+
+    function cachePortalSourceResult(code, success, data, error) {
+        const key = String(code || "").trim().toUpperCase()
+
+        if (!key)
+            return
+
+        const next = Object.assign({}, page.portalSourceStates)
+
+        next[key] = {
+            success: !!success,
+            data: data || ({}),
+            error: String(error || ""),
+            updated: Date.now()
+        }
+
+        page.portalSourceStates = next
+        page.rebuildPortalActivityModels()
+        page.syncActivePortalTalker()
+    }
+
+    function hasPortalSource(code) {
+        const wanted = String(code || "").trim().toUpperCase()
+        const sources = page.reflectorClient.portalSourceCodes || []
+
+        for (let i = 0; i < sources.length; ++i) {
+            if (String(sources[i] || "").trim().toUpperCase() === wanted)
+                return true
+        }
+
+        return false
+    }
+
+    function lastTalkerFor(source, room) {
+        for (let i = page.talkerHistory.length - 1; i >= 0; --i) {
+            const item = page.talkerHistory[i]
+
+            if (String(item.source || "") !== String(source || ""))
+                continue
+
+            if (String(source || "") === "FRN"
+                    && String(item.room || "") !== String(room || ""))
+                continue
+
+            return item
+        }
+
+        return ({})
+    }
+
+    function lastTalkerForSourceCode(sourceCode) {
+        const wanted = String(sourceCode || "").trim().toUpperCase()
+
+        for (let i = page.talkerHistory.length - 1; i >= 0; --i) {
+            const item = page.talkerHistory[i]
+
+            if (String(item.sourceCode || "").trim().toUpperCase() === wanted)
+                return item
+        }
+
+        return ({})
+    }
+
+    function lastTalkerOpacity(item) {
+        if (!item || !item.callsign)
+            return 1.0
+
+        const endedAt = Number(item.endedAt || 0)
+
+        if (endedAt <= 0)
+            return 0.45
+
+        const ageSeconds =
+                Math.max(0, (page.lastTalkerClockMs - endedAt) / 1000)
+
+        // Prvih 30 sekund ostane popolnoma viden.
+        if (ageSeconds <= 30)
+            return 1.0
+
+        // Nato počasi zbledi do 45 %, vendar nikoli ne izgine.
+        const fade = Math.min(1.0, (ageSeconds - 30) / 300)
+        return 1.0 - (fade * 0.55)
     }
 
     function isActivityUserTalking(source, room, callsign) {
@@ -123,25 +221,32 @@ Page {
                                 callsign)
                 })
             }
-        } else if (page.activityUsersSource === "FRN") {
-            const users = page.frnUsersForRoom(page.activityUsersRoom)
+        } else {
+            for (let j = 0; j < page.frnUsers.length; ++j) {
+                const user = page.frnUsers[j]
 
-            for (let j = 0; j < users.length; ++j) {
-                const user = users[j]
+                if (String(user.sourceCode || "").trim().toUpperCase()
+                        !== String(page.activityUsersSource || "").trim().toUpperCase())
+                    continue
+
+                const isActive =
+                    page.activeTalker
+                    && String(page.activeTalker.sourceCode || "").trim().toUpperCase()
+                       === String(user.sourceCode || "").trim().toUpperCase()
+                    && String(page.activeTalker.callsign || "").trim().toUpperCase()
+                       === String(user.callsign || "").trim().toUpperCase()
 
                 result.push({
-                    source: "FRN",
-                    room: page.activityUsersRoom,
-                    talkgroup: page.activityUsersTalkgroup,
+                    source: user.source,
+                    sourceCode: user.sourceCode,
+                    room: user.room,
+                    talkgroup: user.talkgroup,
                     callsign: user.callsign,
                     display: user.display,
                     name: user.name,
                     location: user.location || "",
                     client: user.client || "",
-                    active: page.isActivityUserTalking(
-                                "FRN",
-                                page.activityUsersRoom,
-                                user.callsign)
+                    active: isActive
                 })
             }
         }
@@ -175,14 +280,14 @@ Page {
         const tg = Number(item.talkgroup || 0)
         const tgText = tg > 0 ? "TG " + tg : "TG"
 
-        if (String(item.source || "") === "FRN") {
-            return String(item.room || "FRN")
-                    + " → " + tgText
-                    + " → SvxReflector → Latry"
-        }
-
         if (String(item.source || "") === "SvxReflector") {
             return "SvxReflector → " + tgText + " → Latry"
+        }
+
+        if (String(item.sourceCode || "").length > 0) {
+            return String(item.room || item.source || item.sourceCode)
+                    + (tg > 0 ? " → " + tgText : "")
+                    + " → SvxReflector → Latry"
         }
 
         return String(item.source || "")
@@ -218,7 +323,9 @@ Page {
                 next.push(page.talkerHistory[i])
         }
 
-        next.push(item)
+        const remembered = Object.assign({}, item)
+        remembered.endedAt = Date.now()
+        next.push(remembered)
 
         while (next.length > 30)
             next.shift()
@@ -277,16 +384,50 @@ Page {
         })
     }
 
-    function syncActiveFrnTalker() {
-        const keys = ["slovenija", "obala"]
+    function syncActivePortalTalker() {
+        const sources = page.reflectorClient.portalSources || []
         let current = null
 
-        for (let i = 0; i < keys.length; ++i) {
-            const item = page.frnTalkers[keys[i]]
-            if (item && item.active && item.callsign) {
-                current = item
-                break
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+            const code = String(source.code || "").trim().toUpperCase()
+            const type = String(source.type || "").trim().toLowerCase()
+
+            if (!code || type === "svxreflector")
+                continue
+
+            const state = page.portalSourceStates[code]
+
+            if (!state || !state.success || !state.data)
+                continue
+
+            const data = state.data
+            const talker = data.talker || {}
+            const callsign =
+                    String(talker.callsign || "").trim().toUpperCase()
+
+            if (!talker.active || !callsign)
+                continue
+
+            const name = String(talker.name || "").trim()
+
+            current = {
+                active: true,
+                source: type === "frn"
+                        ? "FRN"
+                        : String(source.name || source.type || code),
+                sourceCode: code,
+                room: String(source.name || code),
+                talkgroup: Number(source.talkgroup || 0),
+                callsign: callsign,
+                name: name,
+                location: String(talker.location || "").trim(),
+                display: name
+                         ? callsign + ", " + name
+                         : callsign
             }
+
+            break
         }
 
         if (current) {
@@ -295,60 +436,8 @@ Page {
         }
 
         if (page.activeTalker
-                && page.activeTalker.source === "FRN")
+                && page.activeTalker.sourceCode)
             page.setActiveTalker({})
-    }
-
-    function refreshFrnTalker(key, url, fallbackRoom, talkgroup) {
-        const xhr = new XMLHttpRequest()
-
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState !== XMLHttpRequest.DONE)
-                return
-
-            const next = Object.assign({}, page.frnTalkers)
-
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const data = JSON.parse(xhr.responseText)
-                    const talker = data.talker || {}
-                    const callsign =
-                            String(talker.callsign || "").trim().toUpperCase()
-
-                    if (talker.active && callsign.length > 0) {
-                        const name = String(talker.name || "").trim()
-                        const room =
-                                String(data.gateway || fallbackRoom).trim()
-
-                        next[key] = {
-                            active: true,
-                            source: "FRN",
-                            room: room,
-                            talkgroup: talkgroup,
-                            callsign: callsign,
-                            name: name,
-                            location: String(talker.location || "").trim(),
-                            display: name.length > 0
-                                     ? callsign + ", " + name
-                                     : callsign
-                        }
-                    } else {
-                        next[key] = { active: false }
-                    }
-                } catch (error) {
-                    console.warn("Invalid FRN talker JSON", key, error)
-                    next[key] = { active: false }
-                }
-            } else {
-                next[key] = { active: false }
-            }
-
-            page.frnTalkers = next
-            page.syncActiveFrnTalker()
-        }
-
-        xhr.open("GET", url + "?t=" + Date.now())
-        xhr.send()
     }
 
     function talkgroupLabel(talkgroup) {
@@ -417,129 +506,129 @@ Page {
             reflectorUsers = next
         }
     }
-    function normalizedFrnUsers(items) {
-        const result = []
-        if (!items || !Array.isArray(items))
-            return result
-
-        for (let i = 0; i < items.length; ++i) {
-            const value = items[i]
-            if (!value || typeof value !== "object")
-                continue
-
-            const display = String(value.display || value.callsign || value.name || value.user || "").trim()
-            const callsign = String(value.callsign || display).trim().toUpperCase()
-
-            if (display.length === 0
-                    || page.isHiddenGatewayCallsign(callsign))
-                continue
-
-            let statusColor = String(value.status_color || "gray").trim().toLowerCase()
-            if (["green", "yellow", "gray"].indexOf(statusColor) < 0)
-                statusColor = "gray"
-
-            result.push({
-                display: display,
-                callsign: String(value.callsign || "").trim().toUpperCase(),
-                name: String(value.name || "").trim(),
-                room: String(value.room || "FRN").trim(),
-                location: String(value.city || value.location || "").trim(),
-                client: String(value.client || value.type || "").trim(),
-                statusColor: statusColor,
-                statusText: String(value.status_text || "").trim(),
-                state: Number(value.state || 0)
-            })
-        }
-
-        result.sort(function(a, b) {
-            const roomCmp = a.room.localeCompare(b.room)
-            return roomCmp !== 0 ? roomCmp : a.display.localeCompare(b.display)
-        })
-        return result
-    }
-
-    function normalizedFrnRooms(items, users) {
-        const result = []
-        const seen = []
-
-        if (items && Array.isArray(items)) {
-            for (let i = 0; i < items.length; ++i) {
-                const value = items[i]
-                if (!value || typeof value !== "object")
-                    continue
-                const name = String(value.name || "").trim()
-                if (name.length === 0 || seen.indexOf(name) >= 0)
-                    continue
-                seen.push(name)
-                result.push({
-                    name: name,
-                    online: value.online !== false,
-                    count: Number(value.count || 0)
-                })
-            }
-        }
-
-        if (users && Array.isArray(users)) {
-            for (let j = 0; j < users.length; ++j) {
-                const room = String(users[j].room || "FRN").trim()
-                if (seen.indexOf(room) < 0) {
-                    seen.push(room)
-                    result.push({name: room, online: true, count: 0})
-                }
-            }
-        }
-
-        return result
-    }
-
-    function frnUsersForRoom(roomName) {
-        const result = []
-        for (let i = 0; i < page.frnUsers.length; ++i) {
-            if (page.frnUsers[i].room === roomName)
-                result.push(page.frnUsers[i])
-        }
-        return result
-    }
-    function refreshFrnUsers() {
+    function rebuildPortalActivityModels() {
         if (!page.showFrnUsers) {
             page.frnUsers = []
+            page.frnRooms = []
+            page.frnServerCount = 0
             page.frnStatusMessage = ""
             return
         }
 
-        const xhr = new XMLHttpRequest()
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState !== XMLHttpRequest.DONE)
-                return
+        const users = []
+        const rooms = []
+        const sources = page.reflectorClient.portalSources || []
 
-            if (xhr.status < 200 || xhr.status >= 300) {
-                page.frnStatusMessage = qsTr("FRN seznam trenutno ni dosegljiv.")
-                return
-            }
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+            const code = String(source.code || "").trim().toUpperCase()
+            const type = String(source.type || "").trim().toLowerCase()
 
-            try {
-                const parsed = JSON.parse(xhr.responseText)
-                const envelope = !Array.isArray(parsed) && parsed && typeof parsed === "object"
-                const users = Array.isArray(parsed) ? parsed : parsed.users
-                page.frnUsers = page.normalizedFrnUsers(users)
-                page.frnRooms = page.normalizedFrnRooms(
-                            envelope ? parsed.rooms : [], page.frnUsers)
-                page.frnServerCount = envelope && parsed.count !== undefined
-                        ? Number(parsed.count)
-                        : page.frnUsers.length
-                page.frnUpdated = envelope && parsed.updated
-                        ? String(parsed.updated)
-                        : ""
-                page.frnStatusMessage = page.frnUsers.length === 0
-                        ? qsTr("Trenutno ni prijavljenih FRN uporabnikov.")
-                        : ""
-            } catch (error) {
-                console.warn("Invalid FRN users JSON", error)
-                page.frnStatusMessage = qsTr("FRN seznam ima napačen format.")
+            if (!code || type === "svxreflector")
+                continue
+
+            const state = page.portalSourceStates[code]
+            const data = state && state.success && state.data
+                         ? state.data
+                         : ({})
+
+            const rawUsers = Array.isArray(data.users)
+                             ? data.users
+                             : []
+
+            const roomName = String(source.name || code)
+            const talkgroup = Number(source.talkgroup || 0)
+            const online = !!(state && state.success
+                              && data.online !== false)
+
+            rooms.push({
+                code: code,
+                name: roomName,
+                type: type,
+                talkgroup: talkgroup,
+                online: online,
+                count: data.count !== undefined
+                       ? Number(data.count)
+                       : rawUsers.length
+            })
+
+            for (let j = 0; j < rawUsers.length; ++j) {
+                const value = rawUsers[j]
+
+                if (!value || typeof value !== "object")
+                    continue
+
+                const display = String(
+                    value.display
+                    || value.callsign
+                    || value.name
+                    || value.user
+                    || ""
+                ).trim()
+
+                if (!display)
+                    continue
+
+                const identity = String(
+                    value.callsign
+                    || value.user
+                    || display
+                ).trim()
+
+                if (page.isHiddenGatewayCallsign(identity))
+                    continue
+
+                let statusColor =
+                    String(value.status_color || "gray")
+                        .trim().toLowerCase()
+
+                if (["green", "yellow", "gray"].indexOf(statusColor) < 0)
+                    statusColor = "gray"
+
+                users.push({
+                    sourceCode: code,
+                    sourceType: type,
+                    source: type === "frn"
+                            ? "FRN"
+                            : roomName,
+                    room: roomName,
+                    talkgroup: talkgroup,
+                    display: display,
+                    callsign: identity,
+                    name: String(value.name || "").trim(),
+                    location: String(
+                        value.city || value.location || ""
+                    ).trim(),
+                    client: String(
+                        value.client || value.type || ""
+                    ).trim(),
+                    statusColor: statusColor,
+                    statusText: String(
+                        value.status_text || ""
+                    ).trim(),
+                    state: Number(value.state || 0)
+                })
             }
         }
-        xhr.open("GET", page.frnStatusUrl + "?t=" + Date.now())
-        xhr.send()
+
+        users.sort(function(a, b) {
+            const roomCmp = a.room.localeCompare(b.room)
+            return roomCmp !== 0
+                    ? roomCmp
+                    : a.display.localeCompare(b.display)
+        })
+
+        page.frnUsers = users
+        page.frnRooms = rooms
+        page.frnServerCount = rooms.length
+        page.frnUpdated = String(Date.now())
+        page.frnStatusMessage = rooms.length === 0
+                ? qsTr("Za ta profil ni dovoljenih dodatnih prehodov.")
+                : ""
+    }
+
+    function refreshFrnUsers() {
+        page.rebuildPortalActivityModels()
     }
 
     onShowFrnUsersChanged: {
@@ -552,6 +641,13 @@ Page {
             frnUpdated = ""
             frnServerCount = 0
         }
+    }
+
+    Timer {
+        interval: 5000
+        repeat: true
+        running: true
+        onTriggered: page.lastTalkerClockMs = Date.now()
     }
 
     Timer {
@@ -586,21 +682,10 @@ Page {
         interval: 500
         repeat: true
         running: !page.reflectorClient.isDisconnected
+                 && !page.reflectorClient.portalAccessLoading
         triggeredOnStart: true
 
-        onTriggered: {
-            page.refreshFrnTalker(
-                        "slovenija",
-                        page.frnSlovenijaTalkerUrl,
-                        "FRN Slovenija",
-                        327)
-
-            page.refreshFrnTalker(
-                        "obala",
-                        page.frnObalaTalkerUrl,
-                        "FRN Obala",
-                        3276)
-        }
+        onTriggered: page.refreshAuthorizedPortalSources()
     }
 
     Timer {
@@ -609,6 +694,19 @@ Page {
         running: page.showFrnUsers
         triggeredOnStart: true
         onTriggered: page.refreshFrnUsers()
+    }
+
+    Connections {
+        target: page.reflectorClient
+
+        function onPortalSourceFetchFinished(code, success, data, error) {
+            page.cachePortalSourceResult(code, success, data, error)
+        }
+
+        function onPortalAccessChanged() {
+            if (!page.reflectorClient.portalAccessLoading)
+                page.refreshAuthorizedPortalSources()
+        }
     }
 
     Connections {
@@ -1240,10 +1338,17 @@ Page {
                                                  page.talkerHistory.length - 1]
                                            : ({}))
 
+                                    readonly property real talkerOpacity:
+                                        page.activeTalker
+                                        && page.activeTalker.callsign
+                                        ? 1.0
+                                        : page.lastTalkerOpacity(shownTalker)
+
                                     Column {
                                         anchors.fill: parent
                                         anchors.margins: 7
                                         spacing: 2
+                                        opacity: parent.talkerOpacity
 
                                         Label {
                                             width: parent.width
@@ -1314,6 +1419,13 @@ Page {
                                         && page.activeTalker.source
                                            === "SvxReflector"
 
+                                    readonly property var shownTalker:
+                                        talking
+                                        ? page.activeTalker
+                                        : page.lastTalkerFor(
+                                              "SvxReflector",
+                                              "SvxReflector")
+
                                     color: talking
                                            ? "#fee2e2"
                                            : "#ecfdf5"
@@ -1341,11 +1453,11 @@ Page {
                                         Label {
                                             width: parent.width
 
-                                            text: parent.parent.talking
-                                                  ? "● "
+                                            text: parent.parent.shownTalker.callsign
+                                                  ? (parent.parent.talking ? "● " : "◷ ")
                                                     + String(
-                                                        page.activeTalker.display
-                                                        || page.activeTalker.callsign)
+                                                        parent.parent.shownTalker.display
+                                                        || parent.parent.shownTalker.callsign)
                                                   : qsTr("Tap → uporabniki ↑↓")
 
                                             font.pixelSize: 9
@@ -1381,7 +1493,7 @@ Page {
                                 color: "#e2e8f0"
                             }
 
-                            // DESNO - FRN
+                            // DESNO - DINAMIČNI PREHODI
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 1
@@ -1391,7 +1503,7 @@ Page {
                                     visible: page.showFrnUsers
                                     Layout.fillWidth: true
 
-                                    text: qsTr("FRN (%1)")
+                                    text: qsTr("PREHODI (%1)")
                                           .arg(page.frnServerCount)
 
                                     font.pixelSize: 10
@@ -1413,13 +1525,17 @@ Page {
 
                                         readonly property bool talking:
                                             page.activeTalker
-                                            && page.activeTalker.source === "FRN"
-                                            && page.activeTalker.room
-                                               === modelData.name
+                                            && String(page.activeTalker.sourceCode || "")
+                                                   === String(modelData.code || "")
 
                                         readonly property int roomTg:
-                                            page.frnTalkgroupForRoom(
-                                                modelData.name)
+                                            Number(modelData.talkgroup || 0)
+
+                                        readonly property var shownTalker:
+                                            talking
+                                            ? page.activeTalker
+                                            : page.lastTalkerForSourceCode(
+                                                  modelData.code)
 
                                         color: talking
                                                ? "#fee2e2"
@@ -1454,11 +1570,11 @@ Page {
                                             Label {
                                                 width: parent.width
 
-                                                text: parent.parent.talking
-                                                      ? "● "
+                                                text: parent.parent.shownTalker.callsign
+                                                      ? (parent.parent.talking ? "● " : "◷ ")
                                                         + String(
-                                                            page.activeTalker.display
-                                                            || page.activeTalker.callsign)
+                                                            parent.parent.shownTalker.display
+                                                            || parent.parent.shownTalker.callsign)
                                                       : qsTr("Tap → uporabniki ↑↓")
 
                                                 font.pixelSize: 9
@@ -1478,7 +1594,7 @@ Page {
                                             onClicked:
                                                 page.openActivityUsers(
                                                     modelData.name,
-                                                    "FRN",
+                                                    modelData.code,
                                                     modelData.name,
                                                     parent.roomTg)
                                         }

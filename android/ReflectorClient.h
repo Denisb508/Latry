@@ -94,6 +94,8 @@ class ReflectorClient : public QObject
     Q_PROPERTY(bool portalAccessLoading READ portalAccessLoading NOTIFY portalAccessChanged)
     Q_PROPERTY(bool hasAdminAccess READ hasAdminAccess NOTIFY portalAccessChanged)
     Q_PROPERTY(QStringList portalCapabilities READ portalCapabilities NOTIFY portalAccessChanged)
+    Q_PROPERTY(QStringList portalSourceCodes READ portalSourceCodes NOTIFY portalAccessChanged)
+    Q_PROPERTY(QVariantList portalSources READ portalSources NOTIFY portalAccessChanged)
     Q_PROPERTY(QVariantList portalAdminUsers READ portalAdminUsers NOTIFY portalAdminUsersChanged)
     Q_PROPERTY(QVariantList portalAdminGroups READ portalAdminGroups NOTIFY portalAdminGroupsChanged)
     Q_PROPERTY(QVariantList portalAdminSources READ portalAdminSources NOTIFY portalAdminSourcesChanged)
@@ -147,6 +149,8 @@ public:
     bool portalAccessLoading() const { return m_portalAccessLoading; }
     bool hasAdminAccess() const { return m_hasAdminAccess; }
     QStringList portalCapabilities() const { return m_portalCapabilities; }
+    QStringList portalSourceCodes() const { return m_portalSourceCodes; }
+    QVariantList portalSources() const { return m_portalSources; }
     QVariantList portalAdminUsers() const { return m_portalAdminUsers; }
     QVariantList portalAdminGroups() const { return m_portalAdminGroups; }
     QVariantList portalAdminSources() const { return m_portalAdminSources; }
@@ -190,6 +194,9 @@ public:
     Q_INVOKABLE bool savePortalToken(const QString &token);
     Q_INVOKABLE void clearPortalToken();
     Q_INVOKABLE void refreshPortalAccess();
+    Q_INVOKABLE void refreshPortalSource(
+        const QString &code,
+        const QString &endpoint);
     Q_INVOKABLE void refreshPortalAdminUsers();
     Q_INVOKABLE void refreshPortalAdminGroups();
     Q_INVOKABLE void refreshPortalAdminSources();
@@ -295,6 +302,11 @@ signals:
     void transcriptionLanguageModelsChanged();
     void transcriptionModelDownloadStateChanged();
     void portalAccessChanged();
+    void portalSourceFetchFinished(
+        const QString &code,
+        bool success,
+        const QVariantMap &data,
+        const QString &error);
     void portalAdminUsersChanged();
     void portalAdminGroupsChanged();
     void portalAdminSourcesChanged();
@@ -618,6 +630,8 @@ private:
     bool m_portalAccessLoading = false;
     bool m_hasAdminAccess = false;
     QStringList m_portalCapabilities;
+    QStringList m_portalSourceCodes;
+    QVariantList m_portalSources;
     QVariantList m_portalAdminUsers;
     QNetworkReply* m_portalAdminUsersReply = nullptr;
     QVariantList m_portalAdminGroups;

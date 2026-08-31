@@ -941,6 +941,8 @@ void ReflectorClient::clearPortalToken()
     m_portalAccessLoading = false;
     m_hasAdminAccess = false;
     m_portalCapabilities.clear();
+    m_portalSourceCodes.clear();
+    m_portalSources.clear();
 
     m_portalAdminUsers.clear();
     m_portalAdminGroups.clear();
@@ -2875,6 +2877,8 @@ void ReflectorClient::refreshPortalAccess()
         m_portalAccessLoading = false;
         m_hasAdminAccess = false;
         m_portalCapabilities.clear();
+    m_portalSourceCodes.clear();
+    m_portalSources.clear();
         emit portalAccessChanged();
         return;
     }
@@ -2927,6 +2931,8 @@ void ReflectorClient::refreshPortalAccess()
             m_portalAccessLoading = false;
             m_hasAdminAccess = false;
             m_portalCapabilities.clear();
+    m_portalSourceCodes.clear();
+    m_portalSources.clear();
 
             if (!reply) {
                 emit portalAccessChanged();
@@ -2977,6 +2983,63 @@ void ReflectorClient::refreshPortalAccess()
                             m_hasAdminAccess = true;
                         }
                     }
+
+                    const QJsonArray sources =
+                        document.object()
+                            .value(QStringLiteral("sources"))
+                            .toArray();
+
+                    for (const QJsonValue &value : sources) {
+                        if (!value.isObject())
+                            continue;
+
+                        const QJsonObject object = value.toObject();
+
+                        const QString code =
+                            object.value(QStringLiteral("code"))
+                                .toString()
+                                .trimmed()
+                                .toUpper();
+
+                        if (code.isEmpty()
+                                || m_portalSourceCodes.contains(code))
+                            continue;
+
+                        m_portalSourceCodes.append(code);
+
+                        QVariantMap source;
+                        source.insert(
+                            QStringLiteral("code"),
+                            code
+                        );
+                        source.insert(
+                            QStringLiteral("name"),
+                            object.value(QStringLiteral("name"))
+                                .toString()
+                        );
+                        source.insert(
+                            QStringLiteral("type"),
+                            object.value(QStringLiteral("type"))
+                                .toString()
+                                .trimmed()
+                                .toLower()
+                        );
+                        source.insert(
+                            QStringLiteral("endpoint"),
+                            object.value(QStringLiteral("endpoint"))
+                                .toString()
+                        );
+
+                        if (!object.value(QStringLiteral("talkgroup")).isNull()) {
+                            source.insert(
+                                QStringLiteral("talkgroup"),
+                                object.value(QStringLiteral("talkgroup"))
+                                    .toInt()
+                            );
+                        }
+
+                        m_portalSources.append(source);
+                    }
                 }
 
             } else {
@@ -2995,7 +3058,187 @@ void ReflectorClient::refreshPortalAccess()
     m_portalAccessLoading = false;
     m_hasAdminAccess = false;
     m_portalCapabilities.clear();
+    m_portalSourceCodes.clear();
+    m_portalSources.clear();
     emit portalAccessChanged();
+#endif
+}
+
+void ReflectorClient::refreshPortalSource(
+    const QString &code,
+    const QString &endpoint)
+{
+#if defined(Q_OS_ANDROID)
+
+    const QString sourceCode =
+        code.trimmed().toUpper();
+
+    const QString sourceEndpoint =
+        endpoint.trimmed();
+
+    if (sourceCode.isEmpty() || sourceEndpoint.isEmpty()) {
+        emit portalSourceFetchFinished(
+            sourceCode,
+            false,
+            QVariantMap{},
+            QStringLiteral("Invalid source"));
+        return;
+    }
+
+    if (!m_networkManager) {
+        emit portalSourceFetchFinished(
+            sourceCode,
+            false,
+            QVariantMap{},
+            QStringLiteral("Network manager unavailable"));
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+
+    if (!context.isValid()) {
+        emit portalSourceFetchFinished(
+            sourceCode,
+            false,
+            QVariantMap{},
+            QStringLiteral("Android context unavailable"));
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token =
+        tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalSourceFetchFinished(
+            sourceCode,
+            false,
+            QVariantMap{},
+            QStringLiteral("Portal token unavailable"));
+        return;
+    }
+
+    QUrl url;
+
+    if (sourceEndpoint.startsWith('/')) {
+        url = QUrl(
+            QStringLiteral("https://svxportal.pmr446.si")
+            + sourceEndpoint
+        );
+    } else {
+        const QUrl candidate(sourceEndpoint);
+
+        if (candidate.scheme() == QStringLiteral("https")
+                && candidate.host()
+                   == QStringLiteral("svxportal.pmr446.si")) {
+            url = candidate;
+        }
+    }
+
+    if (!url.isValid() || url.isEmpty()) {
+        emit portalSourceFetchFinished(
+            sourceCode,
+            false,
+            QVariantMap{},
+            QStringLiteral("Invalid source endpoint"));
+        return;
+    }
+
+    QNetworkRequest request(url);
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+
+    request.setRawHeader(
+        "Accept",
+        "application/json"
+    );
+
+    QNetworkReply *reply =
+        m_networkManager->get(request);
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, sourceCode]() {
+
+            const QByteArray payload =
+                reply->readAll();
+
+            if (reply->error()
+                    == QNetworkReply::NoError) {
+
+                QJsonParseError parseError;
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(
+                        payload,
+                        &parseError);
+
+                if (parseError.error
+                        == QJsonParseError::NoError
+                        && document.isObject()) {
+
+                    emit portalSourceFetchFinished(
+                        sourceCode,
+                        true,
+                        document.object().toVariantMap(),
+                        QString());
+
+                } else {
+
+                    emit portalSourceFetchFinished(
+                        sourceCode,
+                        false,
+                        QVariantMap{},
+                        QStringLiteral(
+                            "Invalid source JSON"));
+                }
+
+            } else {
+
+                QString message =
+                    reply->errorString();
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(payload);
+
+                if (document.isObject()) {
+                    const QString apiError =
+                        document.object()
+                            .value(QStringLiteral("error"))
+                            .toString()
+                            .trimmed();
+
+                    if (!apiError.isEmpty())
+                        message = apiError;
+                }
+
+                emit portalSourceFetchFinished(
+                    sourceCode,
+                    false,
+                    QVariantMap{},
+                    message);
+            }
+
+            reply->deleteLater();
+        }
+    );
+
+#else
+
+    Q_UNUSED(code);
+    Q_UNUSED(endpoint);
+
 #endif
 }
 
