@@ -33,6 +33,9 @@ import org.qtproject.qt.android.bindings.QtActivity;
 
 public class LatryActivity extends QtActivity {
     private static final String TAG = "LatryActivity";
+    private static final String ACTION_SHOW_TALKER_DETAILS =
+            "yo6say.latry.SHOW_TALKER_DETAILS";
+    private static volatile boolean pendingTalkerDetailsRequest = false;
     private static final int OPTIONAL_PERMISSIONS_REQUEST_CODE = 1001;
     private static final int FOCUS_MODE_NONE = 0;
     private static final int FOCUS_MODE_RX = 1;
@@ -55,12 +58,40 @@ public class LatryActivity extends QtActivity {
     private static PhoneStateListener phoneStateListener;
     private PTTButtonBroadcastReceiver dynamicPttReceiver;
 
+    private void handleTalkerDetailsIntent(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+
+        if (ACTION_SHOW_TALKER_DETAILS.equals(intent.getAction())) {
+            pendingTalkerDetailsRequest = true;
+            Log.d(TAG, "Talker Details requested from floating overlay");
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleTalkerDetailsIntent(intent);
+    }
+
+    public static boolean consumeTalkerDetailsRequest() {
+        if (!pendingTalkerDetailsRequest) {
+            return false;
+        }
+
+        pendingTalkerDetailsRequest = false;
+        return true;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         applyQtAccessibilityCrashWorkaroundIfNeeded();
         super.onCreate(savedInstanceState);
         appInitiatedShutdownRequested = false;
         currentActivityInstance = this;
+        handleTalkerDetailsIntent(getIntent());
         LatrySentry.addBreadcrumb("ui.lifecycle", "activity_created", io.sentry.SentryLevel.INFO);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 

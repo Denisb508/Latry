@@ -183,6 +183,7 @@ public:
     Q_INVOKABLE void openTranscriptionSettings();
     Q_INVOKABLE bool hasTalkerOverlayPermission() const;
     Q_INVOKABLE void openTalkerOverlaySettings();
+    Q_INVOKABLE bool consumeTalkerDetailsRequest();
     Q_INVOKABLE void setCustomNodeInfoEntries(const QVariantList &entries);
 
     Q_INVOKABLE bool hasPortalToken() const;

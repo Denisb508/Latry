@@ -38,7 +38,17 @@ Page {
     property string frnStatusMessage: ""
     property string frnUpdated: ""
     property int frnServerCount: 0
+    property var activeTalker: ({})
+    property var talkerHistory: []
+    property var selectedTalkerDetails: ({})
+    property var frnTalkers: ({})
+    property string activityUsersTitle: ""
+    property string activityUsersSource: ""
+    property string activityUsersRoom: ""
+    property int activityUsersTalkgroup: 0
     readonly property string frnStatusUrl: "https://svxportal.pmr446.si/frn_users.json"
+    readonly property string frnSlovenijaTalkerUrl: "https://svxportal.pmr446.si/frn_slovenija_proxy.php"
+    readonly property string frnObalaTalkerUrl: "https://svxportal.pmr446.si/frn_obala_public_proxy.php"
 
     signal openSettingsRequested()
     signal openAdminRequested()
@@ -64,6 +74,282 @@ Page {
     readonly property bool liveTranscriptionVisible: page.uiMetrics.liveTranscriptionAllowed
                                                     && page.reflectorClient.liveTranscriptionEnabled
                                                     && page.reflectorClient.transcriptionText.length > 0
+
+    function frnTalkgroupForRoom(roomName) {
+        const room = String(roomName || "").toLowerCase()
+
+        if (room.indexOf("obala") >= 0)
+            return 3276
+
+        if (room.indexOf("slovenija") >= 0)
+            return 327
+
+        return 0
+    }
+
+    function isActivityUserTalking(source, room, callsign) {
+        if (!page.activeTalker || !page.activeTalker.callsign)
+            return false
+
+        if (String(page.activeTalker.source || "") !== String(source || ""))
+            return false
+
+        if (String(source || "") === "FRN"
+                && String(page.activeTalker.room || "") !== String(room || ""))
+            return false
+
+        return String(page.activeTalker.callsign || "").toUpperCase()
+                === String(callsign || "").toUpperCase()
+    }
+
+    function activityUsers() {
+        const result = []
+
+        if (page.activityUsersSource === "SvxReflector") {
+            for (let i = 0; i < page.reflectorUsers.length; ++i) {
+                const callsign = String(page.reflectorUsers[i] || "").trim()
+
+                result.push({
+                    source: "SvxReflector",
+                    room: "SvxReflector",
+                    talkgroup: page.activityUsersTalkgroup,
+                    callsign: callsign,
+                    display: callsign,
+                    name: "",
+                    location: "",
+                    active: page.isActivityUserTalking(
+                                "SvxReflector",
+                                "SvxReflector",
+                                callsign)
+                })
+            }
+        } else if (page.activityUsersSource === "FRN") {
+            const users = page.frnUsersForRoom(page.activityUsersRoom)
+
+            for (let j = 0; j < users.length; ++j) {
+                const user = users[j]
+
+                result.push({
+                    source: "FRN",
+                    room: page.activityUsersRoom,
+                    talkgroup: page.activityUsersTalkgroup,
+                    callsign: user.callsign,
+                    display: user.display,
+                    name: user.name,
+                    location: user.location || "",
+                    client: user.client || "",
+                    active: page.isActivityUserTalking(
+                                "FRN",
+                                page.activityUsersRoom,
+                                user.callsign)
+                })
+            }
+        }
+
+        // GOVOREC vedno prvi, ostali pod njim.
+        result.sort(function(a, b) {
+            if (a.active && !b.active)
+                return -1
+            if (!a.active && b.active)
+                return 1
+
+            return String(a.display || "").localeCompare(
+                        String(b.display || ""))
+        })
+
+        return result
+    }
+
+    function openActivityUsers(title, source, room, talkgroup) {
+        page.activityUsersTitle = title
+        page.activityUsersSource = source
+        page.activityUsersRoom = room
+        page.activityUsersTalkgroup = talkgroup
+        activityUsersPopup.open()
+    }
+
+    function talkerPath(item) {
+        if (!item)
+            return ""
+
+        const tg = Number(item.talkgroup || 0)
+        const tgText = tg > 0 ? "TG " + tg : "TG"
+
+        if (String(item.source || "") === "FRN") {
+            return String(item.room || "FRN")
+                    + " → " + tgText
+                    + " → SvxReflector → Latry"
+        }
+
+        if (String(item.source || "") === "SvxReflector") {
+            return "SvxReflector → " + tgText + " → Latry"
+        }
+
+        return String(item.source || "")
+                + (tg > 0 ? " → " + tgText : "")
+                + " → Latry"
+    }
+
+    function openTalkerDetails(item) {
+        if (!item || !item.callsign)
+            return
+
+        page.selectedTalkerDetails = item
+        talkerDetailsPopup.open()
+    }
+
+    function talkerKey(item) {
+        if (!item)
+            return ""
+        return String(item.source || "") + "|" +
+               String(item.room || "") + "|" +
+               String(item.callsign || "")
+    }
+
+    function rememberTalker(item) {
+        if (!item || !item.callsign)
+            return
+
+        const key = page.talkerKey(item)
+        const next = []
+
+        for (let i = 0; i < page.talkerHistory.length; ++i) {
+            if (page.talkerKey(page.talkerHistory[i]) !== key)
+                next.push(page.talkerHistory[i])
+        }
+
+        next.push(item)
+
+        while (next.length > 30)
+            next.shift()
+
+        page.talkerHistory = next
+    }
+
+    function setActiveTalker(item) {
+        if (!item || !item.callsign) {
+            if (page.activeTalker && page.activeTalker.callsign)
+                page.rememberTalker(page.activeTalker)
+
+            page.activeTalker = ({})
+            return
+        }
+
+        if (page.talkerKey(page.activeTalker) !== page.talkerKey(item)
+                && page.activeTalker
+                && page.activeTalker.callsign)
+            page.rememberTalker(page.activeTalker)
+
+        page.activeTalker = item
+    }
+
+    function syncSvxTalker() {
+        const callsign =
+                String(page.reflectorClient.currentTalker || "")
+                    .trim().toUpperCase()
+
+        if (callsign.length === 0) {
+            if (page.activeTalker
+                    && page.activeTalker.source === "SvxReflector")
+                page.setActiveTalker({})
+            return
+        }
+
+        // FRN bridge callsigna ne kažemo kot govorca.
+        // Pravega FRN uporabnika dobimo iz FRN proxy-ja.
+        if (page.isHiddenGatewayCallsign(callsign))
+            return
+
+        const name =
+                String(page.reflectorClient.currentTalkerName || "").trim()
+
+        page.setActiveTalker({
+            active: true,
+            source: "SvxReflector",
+            room: "SvxReflector",
+            talkgroup: page.currentTalkgroup,
+            callsign: callsign,
+            name: name,
+            location: "",
+            display: name.length > 0
+                     ? callsign + ", " + name
+                     : callsign
+        })
+    }
+
+    function syncActiveFrnTalker() {
+        const keys = ["slovenija", "obala"]
+        let current = null
+
+        for (let i = 0; i < keys.length; ++i) {
+            const item = page.frnTalkers[keys[i]]
+            if (item && item.active && item.callsign) {
+                current = item
+                break
+            }
+        }
+
+        if (current) {
+            page.setActiveTalker(current)
+            return
+        }
+
+        if (page.activeTalker
+                && page.activeTalker.source === "FRN")
+            page.setActiveTalker({})
+    }
+
+    function refreshFrnTalker(key, url, fallbackRoom, talkgroup) {
+        const xhr = new XMLHttpRequest()
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+
+            const next = Object.assign({}, page.frnTalkers)
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    const talker = data.talker || {}
+                    const callsign =
+                            String(talker.callsign || "").trim().toUpperCase()
+
+                    if (talker.active && callsign.length > 0) {
+                        const name = String(talker.name || "").trim()
+                        const room =
+                                String(data.gateway || fallbackRoom).trim()
+
+                        next[key] = {
+                            active: true,
+                            source: "FRN",
+                            room: room,
+                            talkgroup: talkgroup,
+                            callsign: callsign,
+                            name: name,
+                            location: String(talker.location || "").trim(),
+                            display: name.length > 0
+                                     ? callsign + ", " + name
+                                     : callsign
+                        }
+                    } else {
+                        next[key] = { active: false }
+                    }
+                } catch (error) {
+                    console.warn("Invalid FRN talker JSON", key, error)
+                    next[key] = { active: false }
+                }
+            } else {
+                next[key] = { active: false }
+            }
+
+            page.frnTalkers = next
+            page.syncActiveFrnTalker()
+        }
+
+        xhr.open("GET", url + "?t=" + Date.now())
+        xhr.send()
+    }
 
     function talkgroupLabel(talkgroup) {
         return talkgroup === 0 ? qsTr("Monitor Mode") : qsTr("TG %1").arg(talkgroup)
@@ -157,6 +443,8 @@ Page {
                 callsign: String(value.callsign || "").trim().toUpperCase(),
                 name: String(value.name || "").trim(),
                 room: String(value.room || "FRN").trim(),
+                location: String(value.city || value.location || "").trim(),
+                client: String(value.client || value.type || "").trim(),
                 statusColor: statusColor,
                 statusText: String(value.status_text || "").trim(),
                 state: Number(value.state || 0)
@@ -267,10 +555,52 @@ Page {
     }
 
     Timer {
+        interval: 250
+        repeat: true
+        running: Qt.platform.os === "android"
+
+        onTriggered: {
+            if (!page.reflectorClient.consumeTalkerDetailsRequest())
+                return
+
+            if (page.activeTalker && page.activeTalker.callsign) {
+                page.openTalkerDetails(page.activeTalker)
+                return
+            }
+
+            if (page.talkerHistory.length > 0) {
+                page.openTalkerDetails(
+                            page.talkerHistory[page.talkerHistory.length - 1])
+            }
+        }
+    }
+
+    Timer {
         interval: 1
         repeat: false
         running: true
         onTriggered: page.syncReflectorUsers()
+    }
+
+    Timer {
+        interval: 500
+        repeat: true
+        running: !page.reflectorClient.isDisconnected
+        triggeredOnStart: true
+
+        onTriggered: {
+            page.refreshFrnTalker(
+                        "slovenija",
+                        page.frnSlovenijaTalkerUrl,
+                        "FRN Slovenija",
+                        327)
+
+            page.refreshFrnTalker(
+                        "obala",
+                        page.frnObalaTalkerUrl,
+                        "FRN Obala",
+                        3276)
+        }
     }
 
     Timer {
@@ -283,6 +613,14 @@ Page {
 
     Connections {
         target: page.reflectorClient
+
+        function onCurrentTalkerChanged() {
+            page.syncSvxTalker()
+        }
+
+        function onCurrentTalkerNameChanged() {
+            page.syncSvxTalker()
+        }
 
         function onConnectedNodesChanged(nodes) {
             page.reflectorUsers = page.normalizedReflectorUsers(nodes)
@@ -298,6 +636,429 @@ Page {
 
         function onIsDisconnectedChanged() {
             page.syncReflectorUsers()
+        }
+    }
+
+    Popup {
+        id: activityUsersPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 28, 390)
+        height: Math.min(page.height - 80, 520)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 12
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: "#cbd5e1"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: page.activityUsersTitle
+                        font.pixelSize: 15
+                        font.bold: true
+                        color: "#0f172a"
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("%1 uporabnikov")
+                              .arg(page.activityUsers().length)
+                        font.pixelSize: 10
+                        color: "#64748b"
+                    }
+                }
+
+                Button {
+                    text: "✕"
+                    flat: true
+                    onClicked: activityUsersPopup.close()
+                }
+            }
+
+            ListView {
+                id: activityUsersList
+
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                model: page.activityUsers()
+                spacing: 7
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    width: activityUsersList.width
+                    height: modelData.active ? 64 : 58
+                    radius: 10
+
+                    color: modelData.active
+                           ? "#fee2e2"
+                           : "#f8fafc"
+
+                    border.color: modelData.active
+                                  ? "#ef4444"
+                                  : "#cbd5e1"
+
+                    border.width: modelData.active ? 2 : 1
+
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 2
+
+                        Label {
+                            width: parent.width
+                            visible: modelData.active
+                            text: qsTr("● GOVORI")
+                            font.pixelSize: 9
+                            font.bold: true
+                            color: "#b91c1c"
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: String(modelData.display
+                                         || modelData.callsign
+                                         || "")
+                            font.pixelSize: 12
+                            font.bold: true
+                            color: modelData.active
+                                   ? "#b91c1c"
+                                   : "#334155"
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: String(modelData.room
+                                         || modelData.source
+                                         || "")
+                                  + (modelData.talkgroup
+                                     ? " • TG " + modelData.talkgroup
+                                     : "")
+                            font.pixelSize: 9
+                            color: "#64748b"
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+
+                        onClicked: {
+                            activityUsersPopup.close()
+                            page.openTalkerDetails(modelData)
+                        }
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                }
+            }
+
+            Label {
+                visible: page.activityUsers().length === 0
+                Layout.fillWidth: true
+                text: qsTr("Trenutno ni uporabnikov.")
+                horizontalAlignment: Text.AlignHCenter
+                color: "#64748b"
+            }
+        }
+    }
+
+    Popup {
+        id: talkerDetailsPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 32, 380)
+        height: Math.min(page.height - 100, 390)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 14
+
+        readonly property bool talkerActive:
+            page.selectedTalkerDetails
+            && page.selectedTalkerDetails.callsign
+            && page.talkerKey(page.selectedTalkerDetails)
+               === page.talkerKey(page.activeTalker)
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: talkerDetailsPopup.talkerActive
+                          ? "#ef4444"
+                          : "#cbd5e1"
+            border.width: talkerDetailsPopup.talkerActive ? 2 : 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Label {
+                    text: qsTr("Talker Details")
+                    font.bold: true
+                    font.pixelSize: 15
+                    color: "#0f172a"
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    text: "✕"
+                    flat: true
+                    onClicked: talkerDetailsPopup.close()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: talkerDetailsPopup.talkerActive
+                      ? qsTr("● GOVORI")
+                      : qsTr("ZADNJI GOVOREC")
+                font.bold: true
+                color: talkerDetailsPopup.talkerActive
+                       ? "#b91c1c"
+                       : "#64748b"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: String(page.selectedTalkerDetails.display
+                             || page.selectedTalkerDetails.callsign
+                             || "")
+                font.pixelSize: 17
+                font.bold: true
+                color: "#0f172a"
+                wrapMode: Text.WordWrap
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: "#e2e8f0"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Vir: %1")
+                      .arg(String(page.selectedTalkerDetails.source || ""))
+                wrapMode: Text.WordWrap
+                color: "#334155"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: String(page.selectedTalkerDetails.room || "").length > 0
+                text: qsTr("Soba: %1")
+                      .arg(String(page.selectedTalkerDetails.room || ""))
+                wrapMode: Text.WordWrap
+                color: "#334155"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: Number(page.selectedTalkerDetails.talkgroup || 0) > 0
+                text: "TG: " + Number(page.selectedTalkerDetails.talkgroup || 0)
+                color: "#334155"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: String(page.selectedTalkerDetails.location || "").length > 0
+                text: qsTr("Lokacija: %1")
+                      .arg(String(page.selectedTalkerDetails.location || ""))
+                wrapMode: Text.WordWrap
+                color: "#334155"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Pot signala:")
+                font.bold: true
+                color: "#334155"
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: page.talkerPath(page.selectedTalkerDetails)
+                wrapMode: Text.WordWrap
+                font.bold: true
+                color: "#1d4ed8"
+            }
+
+            Item {
+                Layout.fillHeight: true
+            }
+        }
+    }
+
+    Popup {
+        id: lastTalkerPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 32, 360)
+        height: Math.min(page.height - 80, 480)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 12
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: "#cbd5e1"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Label {
+                    text: qsTr("Last Talkers")
+                    font.bold: true
+                    font.pixelSize: 15
+                    color: "#0f172a"
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    text: "✕"
+                    flat: true
+                    onClicked: lastTalkerPopup.close()
+                }
+            }
+
+            // Trenutni govorec je vedno prvi in rdeč
+            Rectangle {
+                visible: page.activeTalker
+                         && page.activeTalker.callsign
+                Layout.fillWidth: true
+                implicitHeight: 58
+                radius: 10
+                color: "#fee2e2"
+                border.color: "#ef4444"
+
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 2
+
+                    Label {
+                        width: parent.width
+                        text: "● " + String(page.activeTalker.display || page.activeTalker.callsign || "")
+                        font.bold: true
+                        color: "#b91c1c"
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        width: parent.width
+                        text: String(page.activeTalker.room || page.activeTalker.source || "")
+                              + (page.activeTalker.talkgroup
+                                 ? " • TG " + page.activeTalker.talkgroup
+                                 : "")
+                        color: "#7f1d1d"
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: page.openTalkerDetails(page.activeTalker)
+                }
+            }
+
+            ListView {
+                id: talkerHistoryList
+
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: page.talkerHistory
+                spacing: 6
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    width: talkerHistoryList.width
+                    height: 54
+                    radius: 9
+                    color: "#f8fafc"
+                    border.color: "#cbd5e1"
+
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 2
+
+                        Label {
+                            width: parent.width
+                            text: String(modelData.display || modelData.callsign || "")
+                            font.bold: true
+                            color: "#334155"
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: String(modelData.room || modelData.source || "")
+                                  + (modelData.talkgroup
+                                     ? " • TG " + modelData.talkgroup
+                                     : "")
+                            font.pixelSize: 11
+                            color: "#64748b"
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: page.openTalkerDetails(modelData)
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                }
+            }
+
+            Label {
+                visible: (!page.activeTalker || !page.activeTalker.callsign)
+                         && page.talkerHistory.length === 0
+                Layout.fillWidth: true
+                text: qsTr("Še ni zabeleženih govorcev.")
+                horizontalAlignment: Text.AlignHCenter
+                color: "#64748b"
+            }
         }
     }
 
@@ -448,181 +1209,278 @@ Page {
                             Layout.fillWidth: true
                             spacing: 8
 
-                            // LEFT: SvxReflector
+                            // LEVO
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 1
-                                spacing: 5
+                                spacing: 6
 
-                                Label {
+                                // LAST TALKER
+                                Rectangle {
                                     Layout.fillWidth: true
-                                    visible: page.showReflectorUsers
-                                    text: qsTr("SvxReflector (%1)").arg(page.reflectorUsers.length)
-                                    font.pixelSize: page.compactMode ? 10 : page.uiMetrics.captionFontSize
-                                    font.bold: true
-                                    color: "#334155"
-                                    elide: Text.ElideRight
-                                }
+                                    implicitHeight: 60
+                                    radius: 10
 
-                                ListView {
-                                    id: reflectorUsersList
+                                    color: page.activeTalker
+                                           && page.activeTalker.callsign
+                                           ? "#fee2e2"
+                                           : "#f8fafc"
 
-                                    visible: page.showReflectorUsers
-                                             && page.reflectorUsers.length > 0
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: page.compactMode ? 34 : 38
+                                    border.color: page.activeTalker
+                                                  && page.activeTalker.callsign
+                                                  ? "#ef4444"
+                                                  : "#cbd5e1"
 
-                                    orientation: ListView.Horizontal
-                                    model: page.reflectorUsers
-                                    spacing: 6
-                                    clip: true
-                                    interactive: contentWidth > width
-                                    boundsBehavior: Flickable.StopAtBounds
-                                    snapMode: ListView.SnapToItem
+                                    readonly property var shownTalker:
+                                        page.activeTalker
+                                        && page.activeTalker.callsign
+                                        ? page.activeTalker
+                                        : (page.talkerHistory.length > 0
+                                           ? page.talkerHistory[
+                                                 page.talkerHistory.length - 1]
+                                           : ({}))
 
-                                    delegate: Rectangle {
-                                        required property string modelData
-
-                                        readonly property bool isTalking:
-                                            String(page.reflectorClient.currentTalker || "")
-                                                .trim().toUpperCase() === modelData
-
-                                        width: Math.max(68, (reflectorUsersList.width - 6) / 2)
-                                        height: reflectorUsersList.height - 2
-                                        radius: 10
-                                        color: isTalking ? "#fee2e2" : "#e8f5e9"
-                                        border.color: isTalking ? "#ef4444" : "#86c98a"
-                                        border.width: 1
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 7
+                                        spacing: 2
 
                                         Label {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 6
-                                            anchors.rightMargin: 6
-                                            verticalAlignment: Text.AlignVCenter
-                                            horizontalAlignment: Text.AlignHCenter
-                                            text: "● " + modelData
-                                            elide: Text.ElideRight
-                                            color: parent.isTalking ? "#b91c1c" : "#216e2d"
-                                            font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                            width: parent.width
+                                            text: qsTr("LAST TALKER")
+                                            font.pixelSize: 9
                                             font.bold: true
+                                            color: "#64748b"
+                                        }
+
+                                        Label {
+                                            width: parent.width
+
+                                            text: parent.parent.shownTalker.callsign
+                                                  ? ((page.activeTalker
+                                                      && page.activeTalker.callsign
+                                                      ? "● "
+                                                      : "")
+                                                     + String(
+                                                         parent.parent.shownTalker.display
+                                                         || parent.parent.shownTalker.callsign))
+                                                  : qsTr("—")
+
+                                            font.pixelSize: 10
+                                            font.bold: true
+
+                                            color: page.activeTalker
+                                                   && page.activeTalker.callsign
+                                                   ? "#b91c1c"
+                                                   : "#334155"
+
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Label {
+                                            width: parent.width
+                                            visible: parent.parent.shownTalker.callsign
+
+                                            text: String(
+                                                      parent.parent.shownTalker.room
+                                                      || parent.parent.shownTalker.source
+                                                      || "")
+                                                  + (parent.parent.shownTalker.talkgroup
+                                                     ? " • TG "
+                                                       + parent.parent.shownTalker.talkgroup
+                                                     : "")
+
+                                            font.pixelSize: 9
+                                            color: "#64748b"
+                                            elide: Text.ElideRight
                                         }
                                     }
 
-                                    ScrollBar.horizontal: ScrollBar {
-                                        policy: ScrollBar.AsNeeded
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: lastTalkerPopup.open()
                                     }
                                 }
 
-                                Label {
+                                // SVXREFLECTOR
+                                Rectangle {
                                     visible: page.showReflectorUsers
-                                             && page.reflectorUsers.length === 0
                                     Layout.fillWidth: true
-                                    text: page.reflectorClient.isDisconnected
-                                          ? qsTr("Ni povezan.")
-                                          : qsTr("Ni uporabnikov.")
-                                    color: "#64748b"
-                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
-                                    wrapMode: Text.WordWrap
+                                    implicitHeight: 58
+                                    radius: 10
+
+                                    readonly property bool talking:
+                                        page.activeTalker
+                                        && page.activeTalker.source
+                                           === "SvxReflector"
+
+                                    color: talking
+                                           ? "#fee2e2"
+                                           : "#ecfdf5"
+
+                                    border.color: talking
+                                                  ? "#ef4444"
+                                                  : "#86c98a"
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 7
+                                        spacing: 3
+
+                                        Label {
+                                            width: parent.width
+
+                                            text: qsTr("SvxReflector (%1)")
+                                                  .arg(page.reflectorUsers.length)
+
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                            color: "#334155"
+                                        }
+
+                                        Label {
+                                            width: parent.width
+
+                                            text: parent.parent.talking
+                                                  ? "● "
+                                                    + String(
+                                                        page.activeTalker.display
+                                                        || page.activeTalker.callsign)
+                                                  : qsTr("Tap → uporabniki ↑↓")
+
+                                            font.pixelSize: 9
+                                            font.bold: parent.parent.talking
+
+                                            color: parent.parent.talking
+                                                   ? "#b91c1c"
+                                                   : "#216e2d"
+
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+
+                                        onClicked:
+                                            page.openActivityUsers(
+                                                "SvxReflector",
+                                                "SvxReflector",
+                                                "SvxReflector",
+                                                page.currentTalkgroup)
+                                    }
                                 }
                             }
 
                             Rectangle {
-                                visible: page.showReflectorUsers && page.showFrnUsers
+                                visible: page.showReflectorUsers
+                                         && page.showFrnUsers
+
                                 Layout.fillHeight: true
                                 Layout.preferredWidth: 1
                                 color: "#e2e8f0"
                             }
 
-                            // RIGHT: FRN
+                            // DESNO - FRN
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 1
-                                spacing: 5
+                                spacing: 6
 
                                 Label {
-                                    Layout.fillWidth: true
                                     visible: page.showFrnUsers
-                                    text: qsTr("FRN (%1)").arg(page.frnServerCount)
-                                    font.pixelSize: page.compactMode ? 10 : page.uiMetrics.captionFontSize
+                                    Layout.fillWidth: true
+
+                                    text: qsTr("FRN (%1)")
+                                          .arg(page.frnServerCount)
+
+                                    font.pixelSize: 10
                                     font.bold: true
                                     color: "#334155"
                                 }
 
                                 Repeater {
-                                    model: page.showFrnUsers ? page.frnRooms : []
+                                    model: page.showFrnUsers
+                                           ? page.frnRooms
+                                           : []
 
-                                    delegate: ColumnLayout {
+                                    delegate: Rectangle {
                                         required property var modelData
-                                        Layout.fillWidth: true
-                                        spacing: 3
 
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: qsTr("%1 (%2)")
-                                                    .arg(modelData.name)
-                                                    .arg(modelData.count)
-                                            font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
-                                            font.bold: true
-                                            color: modelData.online ? "#475569" : "#94a3b8"
-                                            elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                        implicitHeight: 58
+                                        radius: 10
+
+                                        readonly property bool talking:
+                                            page.activeTalker
+                                            && page.activeTalker.source === "FRN"
+                                            && page.activeTalker.room
+                                               === modelData.name
+
+                                        readonly property int roomTg:
+                                            page.frnTalkgroupForRoom(
+                                                modelData.name)
+
+                                        color: talking
+                                               ? "#fee2e2"
+                                               : (modelData.online
+                                                  ? "#ecfdf5"
+                                                  : "#f8fafc")
+
+                                        border.color: talking
+                                                      ? "#ef4444"
+                                                      : (modelData.online
+                                                         ? "#86c98a"
+                                                         : "#cbd5e1")
+
+                                        Column {
+                                            anchors.fill: parent
+                                            anchors.margins: 7
+                                            spacing: 3
+
+                                            Label {
+                                                width: parent.width
+
+                                                text: qsTr("%1 (%2)")
+                                                      .arg(modelData.name)
+                                                      .arg(modelData.count)
+
+                                                font.pixelSize: 10
+                                                font.bold: true
+                                                color: "#334155"
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Label {
+                                                width: parent.width
+
+                                                text: parent.parent.talking
+                                                      ? "● "
+                                                        + String(
+                                                            page.activeTalker.display
+                                                            || page.activeTalker.callsign)
+                                                      : qsTr("Tap → uporabniki ↑↓")
+
+                                                font.pixelSize: 9
+                                                font.bold: parent.parent.talking
+
+                                                color: parent.parent.talking
+                                                       ? "#b91c1c"
+                                                       : "#216e2d"
+
+                                                elide: Text.ElideRight
+                                            }
                                         }
 
-                                        ListView {
-                                            id: frnUsersList
+                                        MouseArea {
+                                            anchors.fill: parent
 
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: page.compactMode ? 34 : 38
-
-                                            orientation: ListView.Horizontal
-                                            model: page.frnUsersForRoom(modelData.name)
-                                            spacing: 6
-                                            clip: true
-                                            interactive: contentWidth > width
-                                            boundsBehavior: Flickable.StopAtBounds
-                                            snapMode: ListView.SnapToItem
-
-                                            delegate: Rectangle {
-                                                required property var modelData
-
-                                                readonly property string statusColor:
-                                                    modelData.statusColor || "gray"
-
-                                                width: Math.max(
-                                                    (frnUsersList.width - 6) / 2,
-                                                    frnUserLabel.implicitWidth + 16
-                                                )
-                                                height: frnUsersList.height - 2
-                                                radius: 10
-
-                                                color: statusColor === "green" ? "#ecfdf5"
-                                                       : statusColor === "yellow" ? "#fffbeb"
-                                                       : "#ffffff"
-
-                                                border.color: statusColor === "green" ? "#86c98a"
-                                                              : statusColor === "yellow" ? "#facc15"
-                                                              : "#cbd5e1"
-                                                border.width: 1
-
-                                                Label {
-                                                    id: frnUserLabel
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: 5
-                                                    anchors.rightMargin: 5
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    horizontalAlignment: Text.AlignHCenter
-                                                    text: "● " + modelData.display
-                                                    elide: Text.ElideRight
-                                                    color: parent.statusColor === "green" ? "#216e2d"
-                                                           : parent.statusColor === "yellow" ? "#a16207"
-                                                           : "#64748b"
-                                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
-                                                    font.bold: true
-                                                }
-                                            }
-
-                                            ScrollBar.horizontal: ScrollBar {
-                                                policy: ScrollBar.AsNeeded
-                                            }
+                                            onClicked:
+                                                page.openActivityUsers(
+                                                    modelData.name,
+                                                    "FRN",
+                                                    modelData.name,
+                                                    parent.roomTg)
                                         }
                                     }
                                 }
@@ -630,11 +1488,12 @@ Page {
                                 Label {
                                     visible: page.showFrnUsers
                                              && page.frnStatusMessage.length > 0
+
                                     Layout.fillWidth: true
                                     text: page.frnStatusMessage
                                     wrapMode: Text.WordWrap
                                     color: "#64748b"
-                                    font.pixelSize: page.compactMode ? 9 : page.uiMetrics.captionFontSize
+                                    font.pixelSize: 9
                                 }
                             }
                         }

@@ -3393,6 +3393,18 @@ void ReflectorClient::openTalkerOverlaySettings()
 #endif
 }
 
+bool ReflectorClient::consumeTalkerDetailsRequest()
+{
+#if defined(Q_OS_ANDROID)
+    return QJniObject::callStaticMethod<jboolean>(
+        "yo6say/latry/LatryActivity",
+        "consumeTalkerDetailsRequest",
+        "()Z");
+#else
+    return false;
+#endif
+}
+
 void ReflectorClient::updateTxTimeoutWarningState()
 {
     const int remainingSeconds = m_txTimeoutSeconds - m_txSeconds;

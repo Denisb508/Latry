@@ -295,6 +295,7 @@ public final class TalkerOverlayManager {
             private int startY;
             private float downX;
             private float downY;
+            private boolean moved;
 
             @Override
             public boolean onTouch(View touchedView, MotionEvent event) {
@@ -308,17 +309,43 @@ public final class TalkerOverlayManager {
                         startY = layoutParams.y;
                         downX = event.getRawX();
                         downY = event.getRawY();
+                        moved = false;
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
-                        layoutParams.x = startX + Math.round(event.getRawX() - downX);
-                        layoutParams.y = startY + Math.round(event.getRawY() - downY);
-                        if (overlayView != null && overlayView.getParent() != null) {
-                            windowManager.updateViewLayout(overlayView, layoutParams);
+                        float dx = event.getRawX() - downX;
+                        float dy = event.getRawY() - downY;
+
+                        if (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6)) {
+                            moved = true;
+                        }
+
+                        if (moved) {
+                            layoutParams.x = startX + Math.round(dx);
+                            layoutParams.y = startY + Math.round(dy);
+
+                            if (overlayView != null && overlayView.getParent() != null) {
+                                windowManager.updateViewLayout(overlayView, layoutParams);
+                            }
                         }
                         return true;
 
                     case MotionEvent.ACTION_UP:
+                        if (!moved) {
+                            Intent intent = new Intent(context, LatryActivity.class);
+                            intent.setAction("yo6say.latry.SHOW_TALKER_DETAILS");
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+                            try {
+                                context.startActivity(intent);
+                            } catch (RuntimeException e) {
+                                Log.e(TAG, "Unable to open Latry from talker overlay", e);
+                            }
+                        }
+                        return true;
+
                     case MotionEvent.ACTION_CANCEL:
                         return true;
 
