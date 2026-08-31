@@ -532,9 +532,7 @@ Page {
                          ? state.data
                          : ({})
 
-            const rawUsers = Array.isArray(data.users)
-                             ? data.users
-                             : []
+            const rawUsers = data.users || []
 
             const roomName = String(source.name || code)
             const talkgroup = Number(source.talkgroup || 0)
