@@ -3242,6 +3242,67 @@ void ReflectorClient::refreshPortalSource(
 #endif
 }
 
+void ReflectorClient::notifyTalkerWatch(
+    const QString &callsign,
+    const QString &display,
+    const QString &room,
+    int talkgroup,
+    bool beep,
+    bool vibration,
+    bool notification)
+{
+#if defined(Q_OS_ANDROID)
+
+    const QJniObject context =
+        QJniObject::callStaticObjectMethod(
+            "org/qtproject/qt/android/QtNative",
+            "getContext",
+            "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        qWarning() << "Talker Watch: Android context unavailable";
+        return;
+    }
+
+    const QJniObject jCallsign =
+        QJniObject::fromString(callsign);
+
+    const QJniObject jDisplay =
+        QJniObject::fromString(display);
+
+    const QJniObject jRoom =
+        QJniObject::fromString(room);
+
+    QJniObject::callStaticMethod<void>(
+        "yo6say/latry/LatryActivity",
+        "notifyTalkerWatch",
+        "(Landroid/content/Context;"
+        "Ljava/lang/String;"
+        "Ljava/lang/String;"
+        "Ljava/lang/String;"
+        "IZZZ)V",
+        context.object(),
+        jCallsign.object<jstring>(),
+        jDisplay.object<jstring>(),
+        jRoom.object<jstring>(),
+        static_cast<jint>(talkgroup),
+        static_cast<jboolean>(beep),
+        static_cast<jboolean>(vibration),
+        static_cast<jboolean>(notification));
+
+#else
+
+    Q_UNUSED(callsign);
+    Q_UNUSED(display);
+    Q_UNUSED(room);
+    Q_UNUSED(talkgroup);
+    Q_UNUSED(beep);
+    Q_UNUSED(vibration);
+    Q_UNUSED(notification);
+
+#endif
+}
+
 void ReflectorClient::setHardwarePttEnabled(bool enabled)
 {
     if (m_hardwarePttEnabled == enabled) {

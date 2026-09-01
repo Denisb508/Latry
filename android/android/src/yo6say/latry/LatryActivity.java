@@ -5,6 +5,11 @@ import android.view.WindowManager;
 import android.media.AudioManager;
 import android.media.AudioFocusRequest;
 import android.media.AudioAttributes;
+import android.media.ToneGenerator;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -41,6 +46,13 @@ public class LatryActivity extends QtActivity {
     private static final int FOCUS_MODE_RX = 1;
     private static final int FOCUS_MODE_TX = 2;
     private static final long[] TOT_WARNING_VIBRATION_PATTERN_MS = new long[] {0L, 80L, 60L, 120L};
+
+    private static final String TALKER_WATCH_CHANNEL_ID =
+            "latry_talker_watch";
+    private static final String TALKER_WATCH_CHANNEL_NAME =
+            "Talker Watch";
+    private static final long[] TALKER_WATCH_VIBRATION_PATTERN_MS =
+            new long[] {0L, 90L};
 
     private static AudioManager audioManager;
     private static AudioManager.OnAudioFocusChangeListener focusChangeListener;
@@ -582,6 +594,161 @@ public class LatryActivity extends QtActivity {
         if (wifiLock != null && wifiLock.isHeld()) {
             wifiLock.release();
             Log.d(TAG, "WiFi lock released");
+        }
+    }
+
+    public static void notifyTalkerWatch(
+            Context context,
+            String callsign,
+            String display,
+            String room,
+            int talkgroup,
+            boolean beep,
+            boolean vibration,
+            boolean notification) {
+
+        if (context == null) {
+            Log.w(TAG, "Talker Watch alert skipped: no context");
+            return;
+        }
+
+        final String safeCallsign =
+                callsign == null ? "" : callsign.trim();
+
+        final String safeDisplay =
+                display == null || display.trim().isEmpty()
+                        ? safeCallsign
+                        : display.trim();
+
+        final String safeRoom =
+                room == null ? "" : room.trim();
+
+        if (beep) {
+            try {
+                final ToneGenerator tone =
+                        new ToneGenerator(
+                                AudioManager.STREAM_NOTIFICATION,
+                                70);
+
+                tone.startTone(
+                        ToneGenerator.TONE_PROP_BEEP,
+                        160);
+
+                new Handler(Looper.getMainLooper())
+                        .postDelayed(tone::release, 300);
+
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Talker Watch beep failed", e);
+            }
+        }
+
+        if (vibration) {
+            Vibrator vibrator = getVibrator(context);
+
+            if (vibrator != null && vibrator.hasVibrator()) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(
+                                VibrationEffect.createWaveform(
+                                        TALKER_WATCH_VIBRATION_PATTERN_MS,
+                                        -1));
+                    } else {
+                        vibrator.vibrate(
+                                TALKER_WATCH_VIBRATION_PATTERN_MS,
+                                -1);
+                    }
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "Talker Watch vibration failed", e);
+                }
+            }
+        }
+
+        if (!notification)
+            return;
+
+        NotificationManager manager =
+                (NotificationManager)
+                        context.getSystemService(
+                                Context.NOTIFICATION_SERVICE);
+
+        if (manager == null)
+            return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel =
+                    manager.getNotificationChannel(
+                            TALKER_WATCH_CHANNEL_ID);
+
+            if (channel == null) {
+                channel = new NotificationChannel(
+                        TALKER_WATCH_CHANNEL_ID,
+                        TALKER_WATCH_CHANNEL_NAME,
+                        NotificationManager.IMPORTANCE_LOW);
+
+                // Zvok/vibracijo upravljamo sami glede na uporabnikove kljukice.
+                channel.setSound(null, null);
+                channel.enableVibration(false);
+
+                manager.createNotificationChannel(channel);
+            }
+        }
+
+        Intent intent =
+                new Intent(context, LatryActivity.class);
+
+        intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        PendingIntent pendingIntent =
+                PendingIntent.getActivity(
+                        context,
+                        Math.abs(safeCallsign.hashCode()),
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                                | PendingIntent.FLAG_IMMUTABLE);
+
+        String detail = safeRoom;
+
+        if (talkgroup > 0) {
+            detail += (detail.isEmpty() ? "" : " • ")
+                    + "TG" + talkgroup;
+        }
+
+        Notification.Builder builder =
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? new Notification.Builder(
+                                context,
+                                TALKER_WATCH_CHANNEL_ID)
+                        : new Notification.Builder(context);
+
+        Notification built =
+                builder
+                        .setSmallIcon(
+                                android.R.drawable.ic_dialog_info)
+                        .setContentTitle(
+                                "🔔 " + safeDisplay + " govori")
+                        .setContentText(detail)
+                        .setContentIntent(pendingIntent)
+                        .setAutoCancel(true)
+                        .setOnlyAlertOnce(true)
+                        .build();
+
+        try {
+            manager.notify(
+                    41000 + Math.abs(safeCallsign.hashCode() % 10000),
+                    built);
+
+        } catch (SecurityException e) {
+            Log.w(TAG,
+                    "Talker Watch notification permission denied",
+                    e);
+
+        } catch (RuntimeException e) {
+            Log.w(TAG,
+                    "Talker Watch notification failed",
+                    e);
         }
     }
 

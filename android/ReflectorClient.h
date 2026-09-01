@@ -197,6 +197,14 @@ public:
     Q_INVOKABLE void refreshPortalSource(
         const QString &code,
         const QString &endpoint);
+    Q_INVOKABLE void notifyTalkerWatch(
+        const QString &callsign,
+        const QString &display,
+        const QString &room,
+        int talkgroup,
+        bool beep,
+        bool vibration,
+        bool notification);
     Q_INVOKABLE void refreshPortalAdminUsers();
     Q_INVOKABLE void refreshPortalAdminGroups();
     Q_INVOKABLE void refreshPortalAdminSources();

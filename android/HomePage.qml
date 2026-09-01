@@ -32,12 +32,18 @@ Page {
     required property bool showReflectorUsers
     required property bool showFrnUsers
 
+    required property string talkerWatchJson
+    required property bool talkerWatchBeepEnabled
+    required property bool talkerWatchVibrationEnabled
+    required property bool talkerWatchNotificationEnabled
+
     property var reflectorUsers: []
     property var frnUsers: []
     property var frnRooms: []
     property string frnStatusMessage: ""
     property string frnUpdated: ""
     property int frnServerCount: 0
+    property bool gatewaysExpanded: false
     property var activeTalker: ({})
     property var talkerHistory: []
     property var selectedTalkerDetails: ({})
@@ -51,12 +57,25 @@ Page {
 
     signal openSettingsRequested()
     signal openAdminRequested()
+    signal openTalkerWatchRequested()
     signal openProfileSwitcherRequested()
     signal openTalkgroupSwitcherRequested()
     signal connectRequested()
     signal disconnectRequested()
     signal shutdownRequested()
     signal pttRequested()
+
+    signal talkerWatchSettingsChanged(
+        string watchJson,
+        bool beepEnabled,
+        bool vibrationEnabled,
+        bool notificationEnabled)
+
+    signal talkerWatchTriggered(
+        string callsign,
+        string display,
+        string room,
+        int talkgroup)
 
     Accessible.role: Accessible.Pane
     Accessible.name: qsTr("Home")
@@ -200,7 +219,200 @@ Page {
                 === String(callsign || "").toUpperCase()
     }
 
+    function portalSourceType(code) {
+        const wanted =
+            String(code || "").trim().toUpperCase()
+
+        const sources =
+            page.reflectorClient.portalSources || []
+
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+
+            if (String(source.code || "")
+                    .trim().toUpperCase() === wanted)
+                return String(source.type || "")
+                        .trim().toLowerCase()
+        }
+
+        return ""
+    }
+
+    function isActivityUsersDmr() {
+        return page.portalSourceType(
+                    page.activityUsersSource) === "dmr"
+    }
+
+    function dmrActivityTime(timestamp) {
+        const value = Number(timestamp || 0)
+
+        if (value <= 0)
+            return ""
+
+        const d = new Date(value * 1000)
+
+        const hh =
+            String(d.getHours()).padStart(2, "0")
+
+        const mm =
+            String(d.getMinutes()).padStart(2, "0")
+
+        const ss =
+            String(d.getSeconds()).padStart(2, "0")
+
+        return hh + ":" + mm + ":" + ss
+    }
+
+    function dmrActivityItems() {
+        const code =
+            String(page.activityUsersSource || "")
+                .trim().toUpperCase()
+
+        const state = page.portalSourceStates[code]
+
+        if (!state || !state.success || !state.data)
+            return []
+
+        const data = state.data
+        const result = []
+
+        const activeItems = data.active || []
+
+        for (let i = 0; i < activeItems.length; ++i) {
+            const value = activeItems[i] || {}
+
+            const subscriberId =
+                String(value.subscriber_id || "").trim()
+
+            const callsign =
+                String(
+                    value.callsign
+                    || subscriberId
+                    || ""
+                ).trim().toUpperCase()
+
+            if (!callsign)
+                continue
+
+            result.push({
+                active: true,
+                source: String(
+                    data.gateway
+                    || page.activityUsersRoom
+                    || code),
+                sourceCode: code,
+                sourceType: "dmr",
+                room: String(
+                    data.gateway
+                    || page.activityUsersRoom
+                    || code),
+                talkgroup: Number(
+                    value.reflector_tg
+                    || data.reflector_tg
+                    || page.activityUsersTalkgroup
+                    || 0),
+                dmrTalkgroup: Number(
+                    value.dmr_tg
+                    || data.dmr_tg
+                    || 0),
+                subscriberId: subscriberId,
+                callsign: callsign,
+                display: String(
+                    value.display
+                    || callsign),
+                name: String(
+                    value.name || ""),
+                location: String(
+                    value.city
+                    || value.location
+                    || ""),
+                direction: String(
+                    value.direction || ""),
+                route: String(
+                    value.route || ""),
+                duration: 0,
+                startedAt: Number(
+                    value.started_at || 0),
+                endedAtUnix: 0,
+                kerchunk: false
+            })
+        }
+
+        const history = data.activity || []
+
+        for (let j = 0; j < history.length; ++j) {
+            const value = history[j] || {}
+
+            // Privzeto skrijemo WPSD-style kerchunke < 1 s.
+            if (value.kerchunk === true)
+                continue
+
+            const subscriberId =
+                String(value.subscriber_id || "").trim()
+
+            const callsign =
+                String(
+                    value.callsign
+                    || subscriberId
+                    || ""
+                ).trim().toUpperCase()
+
+            if (!callsign)
+                continue
+
+            result.push({
+                active: false,
+                source: String(
+                    data.gateway
+                    || page.activityUsersRoom
+                    || code),
+                sourceCode: code,
+                sourceType: "dmr",
+                room: String(
+                    data.gateway
+                    || page.activityUsersRoom
+                    || code),
+                talkgroup: Number(
+                    value.reflector_tg
+                    || data.reflector_tg
+                    || page.activityUsersTalkgroup
+                    || 0),
+                dmrTalkgroup: Number(
+                    value.dmr_tg
+                    || data.dmr_tg
+                    || 0),
+                subscriberId: subscriberId,
+                callsign: callsign,
+                display: String(
+                    value.display
+                    || callsign),
+                name: String(
+                    value.name || ""),
+                location: String(
+                    value.city
+                    || value.location
+                    || ""),
+                direction: String(
+                    value.direction || ""),
+                route: String(
+                    value.route || ""),
+                duration: Number(
+                    value.duration || 0),
+                startedAt: Number(
+                    value.started_at || 0),
+                endedAtUnix: Number(
+                    value.ended_at || 0),
+                kerchunk: false
+            })
+        }
+
+        return result
+    }
+
     function activityUsers() {
+        if (page.isActivityUsersDmr())
+            return page.dmrActivityItems()
+
         const result = []
 
         if (page.activityUsersSource === "SvxReflector") {
@@ -265,6 +477,125 @@ Page {
         return result
     }
 
+    function talkerWatchCallsigns() {
+        try {
+            const parsed = JSON.parse(page.talkerWatchJson || "[]")
+            if (!parsed || !Array.isArray(parsed))
+                return []
+
+            const result = []
+
+            for (let i = 0; i < parsed.length; ++i) {
+                const callsign =
+                    String(parsed[i] || "").trim().toUpperCase()
+
+                if (callsign && result.indexOf(callsign) < 0)
+                    result.push(callsign)
+            }
+
+            return result
+        } catch (error) {
+            console.warn("Invalid Talker Watch JSON", error)
+            return []
+        }
+    }
+
+    function isTalkerWatched(callsign) {
+        const wanted =
+            String(callsign || "").trim().toUpperCase()
+
+        return page.talkerWatchCallsigns().indexOf(wanted) >= 0
+    }
+
+    function setTalkerWatched(callsign, enabled) {
+        const wanted =
+            String(callsign || "").trim().toUpperCase()
+
+        if (!wanted)
+            return
+
+        const watch = page.talkerWatchCallsigns()
+        const index = watch.indexOf(wanted)
+
+        if (enabled && index < 0)
+            watch.push(wanted)
+        else if (!enabled && index >= 0)
+            watch.splice(index, 1)
+
+        watch.sort()
+
+        page.talkerWatchSettingsChanged(
+            JSON.stringify(watch),
+            page.talkerWatchBeepEnabled,
+            page.talkerWatchVibrationEnabled,
+            page.talkerWatchNotificationEnabled)
+    }
+
+    function talkerWatchUsers() {
+        const result = []
+        const seen = ({})
+
+        for (let i = 0; i < page.reflectorUsers.length; ++i) {
+            const callsign =
+                String(page.reflectorUsers[i] || "").trim().toUpperCase()
+
+            if (!callsign || seen[callsign])
+                continue
+
+            seen[callsign] = true
+
+            result.push({
+                callsign: callsign,
+                display: callsign,
+                source: "SvxReflector",
+                room: "SvxReflector"
+            })
+        }
+
+        for (let j = 0; j < page.frnUsers.length; ++j) {
+            const user = page.frnUsers[j]
+            const callsign =
+                String(user.callsign || "").trim().toUpperCase()
+
+            if (!callsign || seen[callsign])
+                continue
+
+            seen[callsign] = true
+
+            result.push({
+                callsign: callsign,
+                display: String(user.display || callsign),
+                source: String(user.source || ""),
+                room: String(user.room || "")
+            })
+        }
+
+        const watched = page.talkerWatchCallsigns()
+
+        for (let k = 0; k < watched.length; ++k) {
+            const callsign = watched[k]
+
+            if (seen[callsign])
+                continue
+
+            seen[callsign] = true
+
+            result.push({
+                callsign: callsign,
+                display: callsign,
+                source: "",
+                room: qsTr("Trenutno ni viden")
+            })
+        }
+
+        result.sort(function(a, b) {
+            return String(a.display || "").localeCompare(
+                String(b.display || ""))
+        })
+
+        return result
+    }
+
     function openActivityUsers(title, source, room, talkgroup) {
         page.activityUsersTitle = title
         page.activityUsersSource = source
@@ -276,6 +607,9 @@ Page {
     function talkerPath(item) {
         if (!item)
             return ""
+
+        if (String(item.route || "").length > 0)
+            return String(item.route)
 
         const tg = Number(item.talkgroup || 0)
         const tgText = tg > 0 ? "TG " + tg : "TG"
@@ -342,12 +676,26 @@ Page {
             return
         }
 
-        if (page.talkerKey(page.activeTalker) !== page.talkerKey(item)
+        const previousKey = page.talkerKey(page.activeTalker)
+        const newKey = page.talkerKey(item)
+        const isNewTalker = previousKey !== newKey
+
+        if (isNewTalker
                 && page.activeTalker
                 && page.activeTalker.callsign)
             page.rememberTalker(page.activeTalker)
 
         page.activeTalker = item
+
+        if (isNewTalker
+                && page.isTalkerWatched(item.callsign)) {
+
+            page.talkerWatchTriggered(
+                String(item.callsign || ""),
+                String(item.display || item.callsign || ""),
+                String(item.room || item.source || ""),
+                Number(item.talkgroup || 0))
+        }
     }
 
     function syncSvxTalker() {
@@ -402,6 +750,73 @@ Page {
                 continue
 
             const data = state.data
+
+            // DMR uporablja active[] namesto FRN-style talker{}.
+            if (type === "dmr") {
+                const activeItems = data.active || []
+
+                if (activeItems.length <= 0)
+                    continue
+
+                const talker = activeItems[0] || {}
+                const subscriberId =
+                    String(talker.subscriber_id || "").trim()
+
+                const callsign =
+                    String(
+                        talker.callsign
+                        || subscriberId
+                        || ""
+                    ).trim().toUpperCase()
+
+                if (!callsign)
+                    continue
+
+                const name = String(talker.name || "").trim()
+
+                current = {
+                    active: true,
+                    source: String(source.name || code),
+                    sourceType: type,
+                    sourceCode: code,
+                    room: String(source.name || code),
+
+                    // Za Latry je to pripadajoči reflector TG.
+                    talkgroup: Number(
+                        talker.reflector_tg
+                        || source.talkgroup
+                        || 0),
+
+                    dmrTalkgroup: Number(
+                        talker.dmr_tg || 0),
+
+                    subscriberId: subscriberId,
+                    callsign: callsign,
+                    name: name,
+
+                    location: String(
+                        talker.city
+                        || talker.location
+                        || ""
+                    ).trim(),
+
+                    display: String(
+                        talker.display
+                        || callsign
+                    ).trim(),
+
+                    direction: String(
+                        talker.direction || ""
+                    ),
+
+                    route: String(
+                        talker.route || ""
+                    )
+                }
+
+                break
+            }
+
             const talker = data.talker || {}
             const callsign =
                     String(talker.callsign || "").trim().toUpperCase()
@@ -736,6 +1151,190 @@ Page {
     }
 
     Popup {
+        id: talkerWatchPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 28, 390)
+        height: Math.min(page.height - 80, 560)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 12
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: "#cbd5e1"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+
+                    Label {
+                        text: qsTr("🔔 Talker Watch")
+                        font.pixelSize: 15
+                        font.bold: true
+                        color: "#0f172a"
+                    }
+
+                    Label {
+                        text: qsTr("Označi uporabnike za opozorilo")
+                        font.pixelSize: 10
+                        color: "#64748b"
+                    }
+                }
+
+                Button {
+                    text: "✕"
+                    flat: true
+                    onClicked: talkerWatchPopup.close()
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                CheckBox {
+                    text: qsTr("Pisk")
+                    checked: page.talkerWatchBeepEnabled
+
+                    onToggled:
+                        page.talkerWatchSettingsChanged(
+                            page.talkerWatchJson,
+                            checked,
+                            page.talkerWatchVibrationEnabled,
+                            page.talkerWatchNotificationEnabled)
+                }
+
+                CheckBox {
+                    text: qsTr("Vibracija")
+                    checked: page.talkerWatchVibrationEnabled
+
+                    onToggled:
+                        page.talkerWatchSettingsChanged(
+                            page.talkerWatchJson,
+                            page.talkerWatchBeepEnabled,
+                            checked,
+                            page.talkerWatchNotificationEnabled)
+                }
+
+                CheckBox {
+                    text: qsTr("Obvestilo")
+                    checked: page.talkerWatchNotificationEnabled
+
+                    onToggled:
+                        page.talkerWatchSettingsChanged(
+                            page.talkerWatchJson,
+                            page.talkerWatchBeepEnabled,
+                            page.talkerWatchVibrationEnabled,
+                            checked)
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: "#e2e8f0"
+            }
+
+            ListView {
+                id: talkerWatchList
+
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                model: page.talkerWatchUsers()
+                spacing: 5
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    width: talkerWatchList.width
+                    height: 54
+                    radius: 9
+                    color: "#f8fafc"
+                    border.color: "#cbd5e1"
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 7
+                        spacing: 7
+
+                        CheckBox {
+                            checked:
+                                page.isTalkerWatched(
+                                    modelData.callsign)
+
+                            onToggled:
+                                page.setTalkerWatched(
+                                    modelData.callsign,
+                                    checked)
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: String(
+                                    modelData.display
+                                    || modelData.callsign)
+                                font.pixelSize: 11
+                                font.bold: true
+                                color: "#0f172a"
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text:
+                                    String(modelData.room || "")
+                                    + (modelData.source
+                                       && modelData.source
+                                          !== modelData.room
+                                       ? " • "
+                                         + modelData.source
+                                       : "")
+
+                                font.pixelSize: 9
+                                color: "#64748b"
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+
+                visible:
+                    page.talkerWatchUsers().length === 0
+
+                text: qsTr(
+                    "Trenutno ni uporabnikov za izbiro.")
+
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                color: "#64748b"
+                font.pixelSize: 10
+            }
+        }
+    }
+
+    Popup {
         id: activityUsersPopup
 
         anchors.centerIn: Overlay.overlay
@@ -774,8 +1373,11 @@ Page {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("%1 uporabnikov")
-                              .arg(page.activityUsers().length)
+                        text: page.isActivityUsersDmr()
+                              ? qsTr("%1 dogodkov • zadnjih 60 min")
+                                    .arg(page.activityUsers().length)
+                              : qsTr("%1 uporabnikov")
+                                    .arg(page.activityUsers().length)
                         font.pixelSize: 10
                         color: "#64748b"
                     }
@@ -802,7 +1404,9 @@ Page {
                     required property var modelData
 
                     width: activityUsersList.width
-                    height: modelData.active ? 64 : 58
+                    height: page.isActivityUsersDmr()
+                            ? (modelData.active ? 88 : 76)
+                            : (modelData.active ? 64 : 58)
                     radius: 10
 
                     color: modelData.active
@@ -844,12 +1448,39 @@ Page {
 
                         Label {
                             width: parent.width
-                            text: String(modelData.room
-                                         || modelData.source
-                                         || "")
-                                  + (modelData.talkgroup
-                                     ? " • TG " + modelData.talkgroup
-                                     : "")
+                            visible: page.isActivityUsersDmr()
+
+                            text: modelData.active
+                                  ? qsTr("Zdaj")
+                                  : page.dmrActivityTime(
+                                        modelData.endedAtUnix)
+                                    + (Number(modelData.duration || 0) > 0
+                                       ? " • "
+                                         + Number(modelData.duration)
+                                               .toFixed(2)
+                                         + " s"
+                                       : "")
+
+                            font.pixelSize: 9
+                            font.bold: modelData.active
+                            color: modelData.active
+                                   ? "#b91c1c"
+                                   : "#475569"
+                        }
+
+                        Label {
+                            width: parent.width
+
+                            text: page.isActivityUsersDmr()
+                                  ? String(modelData.route || "")
+                                  : String(modelData.room
+                                           || modelData.source
+                                           || "")
+                                    + (modelData.talkgroup
+                                       ? " • TG "
+                                         + modelData.talkgroup
+                                       : "")
+
                             font.pixelSize: 9
                             color: "#64748b"
                             elide: Text.ElideRight
@@ -874,7 +1505,9 @@ Page {
             Label {
                 visible: page.activityUsers().length === 0
                 Layout.fillWidth: true
-                text: qsTr("Trenutno ni uporabnikov.")
+                text: page.isActivityUsersDmr()
+                      ? qsTr("V zadnjih 60 minutah ni DMR aktivnosti.")
+                      : qsTr("Trenutno ni uporabnikov.")
                 horizontalAlignment: Text.AlignHCenter
                 color: "#64748b"
             }
@@ -1293,11 +1926,26 @@ Page {
                     contentItem: ColumnLayout {
                         spacing: 8
 
-                        Label {
-                            text: qsTr("Aktivnosti na prehodih")
-                            font.pixelSize: page.compactMode ? 12 : 13
-                            font.bold: true
-                            color: "#0f172a"
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Aktivnosti na prehodih")
+                                font.pixelSize: page.compactMode ? 12 : 13
+                                font.bold: true
+                                color: "#0f172a"
+                            }
+
+                            ToolButton {
+                                text: "🔔"
+                                font.pixelSize: 18
+                                Accessible.name: qsTr("Talker Watch")
+
+                                onClicked:
+                                    talkerWatchPopup.open()
+                            }
                         }
 
                         RowLayout {
@@ -1501,15 +2149,53 @@ Page {
                                     visible: page.showFrnUsers
                                     Layout.fillWidth: true
 
-                                    text: qsTr("PREHODI (%1)")
+                                    text: qsTr("PREHODI (%1) %2")
                                           .arg(page.frnServerCount)
+                                          .arg(page.gatewaysExpanded ? "▴" : "▾")
 
                                     font.pixelSize: 10
                                     font.bold: true
                                     color: "#334155"
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onDoubleClicked:
+                                            page.gatewaysExpanded =
+                                                !page.gatewaysExpanded
+                                    }
                                 }
 
-                                Repeater {
+                                ScrollView {
+                                    id: gatewaysScroll
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight:
+                                        page.frnRooms.length > 0
+                                        ? Math.min(
+                                              page.frnRooms.length,
+                                              page.gatewaysExpanded ? 5 : 2
+                                          ) * 64 - 6
+                                        : 0
+
+                                    Layout.maximumHeight:
+                                        page.gatewaysExpanded ? 314 : 122
+
+                                    clip: true
+                                    contentWidth: availableWidth
+
+                                    ScrollBar.horizontal.policy:
+                                        ScrollBar.AlwaysOff
+
+                                    ScrollBar.vertical.policy:
+                                        page.frnRooms.length > 2
+                                        ? ScrollBar.AsNeeded
+                                        : ScrollBar.AlwaysOff
+
+                                    Column {
+                                        width: gatewaysScroll.availableWidth
+                                        spacing: 6
+
+                                        Repeater {
                                     model: page.showFrnUsers
                                            ? page.frnRooms
                                            : []
@@ -1517,8 +2203,8 @@ Page {
                                     delegate: Rectangle {
                                         required property var modelData
 
-                                        Layout.fillWidth: true
-                                        implicitHeight: 58
+                                        width: parent.width
+                                        height: 58
                                         radius: 10
 
                                         readonly property bool talking:
@@ -1596,6 +2282,9 @@ Page {
                                                     modelData.name,
                                                     parent.roomTg)
                                         }
+                                    }
+                                }
+
                                     }
                                 }
 

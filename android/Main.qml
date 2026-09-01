@@ -139,6 +139,13 @@ Window {
         property bool showReflectorUsers: true
         property bool showFrnUsers: false
         property bool liveTranscriptionEnabled: false
+
+        // Talker Watch - lokalne nastavitve tega telefona
+        property string talkerWatchJson: "[]"
+        property bool talkerWatchBeepEnabled: true
+        property bool talkerWatchVibrationEnabled: false
+        property bool talkerWatchNotificationEnabled: true
+
         property string nodeInfoPropertiesJson: "[]"
     }
 
@@ -820,6 +827,12 @@ Window {
             showReflectorUsers: saved.showReflectorUsers
             showFrnUsers: saved.showFrnUsers
 
+            talkerWatchJson: saved.talkerWatchJson
+            talkerWatchBeepEnabled: saved.talkerWatchBeepEnabled
+            talkerWatchVibrationEnabled: saved.talkerWatchVibrationEnabled
+            talkerWatchNotificationEnabled:
+                saved.talkerWatchNotificationEnabled
+
             onOpenSettingsRequested: stackView.push(settingsPageComponent)
             onOpenAdminRequested: stackView.push(adminPageComponent)
             onOpenProfileSwitcherRequested: quickProfileDialog.open()
@@ -828,6 +841,30 @@ Window {
             onDisconnectRequested: ReflectorClient.disconnectFromServer()
             onShutdownRequested: window.shutdownApplication()
             onPttRequested: ReflectorClient.togglePtt()
+
+            onTalkerWatchSettingsChanged:
+                (watchJson,
+                 beepEnabled,
+                 vibrationEnabled,
+                 notificationEnabled) => {
+                    saved.talkerWatchJson = watchJson
+                    saved.talkerWatchBeepEnabled = beepEnabled
+                    saved.talkerWatchVibrationEnabled = vibrationEnabled
+                    saved.talkerWatchNotificationEnabled =
+                        notificationEnabled
+                }
+
+            onTalkerWatchTriggered:
+                (callsign, display, room, talkgroup) => {
+                    ReflectorClient.notifyTalkerWatch(
+                        callsign,
+                        display,
+                        room,
+                        talkgroup,
+                        saved.talkerWatchBeepEnabled,
+                        saved.talkerWatchVibrationEnabled,
+                        saved.talkerWatchNotificationEnabled)
+                }
         }
     }
 
