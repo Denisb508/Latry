@@ -32,6 +32,7 @@
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QLocale>
+#include <QLocationPermission>
 #include <algorithm>
 #include <optional>
 
@@ -68,6 +69,8 @@ constexpr int kAndroidSpeechErrorLanguageUnavailable = 13;
 constexpr int kTranscriptionSupportRefreshIntervalMs = 2000;
 #if defined(Q_OS_ANDROID)
 const QString kRecordAudioPermission = QStringLiteral("android.permission.RECORD_AUDIO");
+const QString kFineLocationPermission = QStringLiteral("android.permission.ACCESS_FINE_LOCATION");
+const QString kCoarseLocationPermission = QStringLiteral("android.permission.ACCESS_COARSE_LOCATION");
 
 QJniObject androidQtContext()
 {
@@ -543,6 +546,8 @@ void ReflectorClient::prepareForShutdown()
     abortPortalReply(m_portalAccessReply);
     abortPortalReply(m_portalEnrollReply);
     abortPortalReply(m_portalAdminUsersReply);
+    abortPortalReply(m_portalAdminGeoReply);
+    abortPortalReply(m_portalAdminGeoSaveReply);
     abortPortalReply(m_portalAdminGroupsReply);
     abortPortalReply(m_portalAdminSourcesReply);
     abortPortalReply(m_portalAdminTokensReply);
@@ -926,6 +931,8 @@ void ReflectorClient::clearPortalToken()
     abortPortalReply(m_portalAccessReply);
     abortPortalReply(m_portalEnrollReply);
     abortPortalReply(m_portalAdminUsersReply);
+    abortPortalReply(m_portalAdminGeoReply);
+    abortPortalReply(m_portalAdminGeoSaveReply);
     abortPortalReply(m_portalAdminGroupsReply);
     abortPortalReply(m_portalAdminSourcesReply);
     abortPortalReply(m_portalAdminTokensReply);
@@ -943,8 +950,11 @@ void ReflectorClient::clearPortalToken()
     m_portalCapabilities.clear();
     m_portalSourceCodes.clear();
     m_portalSources.clear();
+    m_portalGeoShareEnabled = false;
+    m_portalGeoLocationMode = QStringLiteral("off");
 
     m_portalAdminUsers.clear();
+    m_portalAdminGeoUsers.clear();
     m_portalAdminGroups.clear();
     m_portalAdminSources.clear();
     m_portalAdminTokens.clear();
@@ -953,6 +963,7 @@ void ReflectorClient::clearPortalToken()
 
     emit portalAccessChanged();
     emit portalAdminUsersChanged();
+    emit portalAdminGeoUsersChanged();
     emit portalAdminGroupsChanged();
     emit portalAdminSourcesChanged();
     emit portalAdminTokensChanged();
@@ -1098,6 +1109,78 @@ void ReflectorClient::refreshPortalAdminUsers()
 }
 
 
+
+void ReflectorClient::refreshPortalAdminGeo()
+{
+#if defined(Q_OS_ANDROID)
+    m_portalAdminGeoUsers.clear();
+
+    if (!m_portalCapabilities.contains(QStringLiteral("APP_GEO_MANAGE"))) {
+        emit portalAdminGeoUsersChanged();
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid()) {
+        emit portalAdminGeoUsersChanged();
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGeoUsersChanged();
+        return;
+    }
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_geo.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8()
+    );
+
+    QNetworkReply *reply = m_networkManager->get(request);
+    m_portalAdminGeoReply = reply;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (m_portalAdminGeoReply == reply)
+            m_portalAdminGeoReply = nullptr;
+
+        m_portalAdminGeoUsers.clear();
+
+        const QJsonDocument document =
+            QJsonDocument::fromJson(reply->readAll());
+
+        if (reply->error() == QNetworkReply::NoError && document.isObject()) {
+            const QJsonArray users =
+                document.object().value("users").toArray();
+
+            for (const QJsonValue &value : users)
+                m_portalAdminGeoUsers.append(value.toObject().toVariantMap());
+        }
+
+        reply->deleteLater();
+        emit portalAdminGeoUsersChanged();
+    });
+#else
+    m_portalAdminGeoUsers.clear();
+    emit portalAdminGeoUsersChanged();
+#endif
+}
+
+
 void ReflectorClient::refreshPortalAdminGroups()
 {
 #if defined(Q_OS_ANDROID)
@@ -1105,7 +1188,8 @@ void ReflectorClient::refreshPortalAdminGroups()
 
     const bool allowed =
         m_portalCapabilities.contains(QStringLiteral("APP_GROUP_MANAGE")) ||
-        m_portalCapabilities.contains(QStringLiteral("APP_USER_MANAGE"));
+        m_portalCapabilities.contains(QStringLiteral("APP_USER_MANAGE")) ||
+        m_portalCapabilities.contains(QStringLiteral("APP_GEO_MANAGE"));
 
     if (!allowed) {
         emit portalAdminGroupsChanged();
@@ -2565,6 +2649,133 @@ void ReflectorClient::savePortalAdminUser(
 }
 
 
+
+void ReflectorClient::savePortalAdminGeo(
+    int userId,
+    bool shareEnabled,
+    const QString &locationMode,
+    const QStringList &visibleGroups)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalCapabilities.contains(
+            QStringLiteral("APP_GEO_MANAGE"))) {
+        emit portalAdminGeoSaveFinished(
+            false,
+            QStringLiteral("Permission denied"));
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+
+    if (!context.isValid()) {
+        emit portalAdminGeoSaveFinished(
+            false,
+            QStringLiteral("Android context unavailable"));
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalAdminGeoSaveFinished(
+            false,
+            QStringLiteral("Portal token unavailable"));
+        return;
+    }
+
+    if (m_portalAdminGeoSaveReply) {
+        m_portalAdminGeoSaveReply->abort();
+        m_portalAdminGeoSaveReply->deleteLater();
+        m_portalAdminGeoSaveReply = nullptr;
+    }
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("user_id"), userId);
+    payload.insert(QStringLiteral("share_enabled"), shareEnabled);
+    payload.insert(QStringLiteral("location_mode"),
+                   locationMode.trimmed().toLower());
+
+    QJsonArray groups;
+
+    for (const QString &group : visibleGroups)
+        groups.append(group.trimmed().toUpper());
+
+    payload.insert(QStringLiteral("visible_groups"), groups);
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_admin_geo_save.php"
+        ))
+    );
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8());
+
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json"));
+
+    QNetworkReply *reply =
+        m_networkManager->post(
+            request,
+            QJsonDocument(payload).toJson(QJsonDocument::Compact));
+
+    m_portalAdminGeoSaveReply = reply;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+
+        if (m_portalAdminGeoSaveReply == reply)
+            m_portalAdminGeoSaveReply = nullptr;
+
+        const QJsonDocument document =
+            QJsonDocument::fromJson(reply->readAll());
+
+        const bool success =
+            reply->error() == QNetworkReply::NoError &&
+            document.isObject() &&
+            document.object().value(QStringLiteral("ok")).toBool();
+
+        QString message;
+
+        if (success) {
+            message = QStringLiteral("GEO nastavitve so shranjene.");
+            refreshPortalAdminGeo();
+        } else if (document.isObject()) {
+            message = document.object()
+                          .value(QStringLiteral("error"))
+                          .toString();
+        }
+
+        if (message.isEmpty())
+            message = QStringLiteral("Shranjevanje ni uspelo.");
+
+        reply->deleteLater();
+
+        emit portalAdminGeoSaveFinished(success, message);
+    });
+
+#else
+    Q_UNUSED(userId)
+    Q_UNUSED(shareEnabled)
+    Q_UNUSED(locationMode)
+    Q_UNUSED(visibleGroups)
+
+    emit portalAdminGeoSaveFinished(
+        false,
+        QStringLiteral("Unsupported platform"));
+#endif
+}
+
+
 void ReflectorClient::deletePortalAdminUser(
     const QString &callsign)
 {
@@ -2931,8 +3142,10 @@ void ReflectorClient::refreshPortalAccess()
             m_portalAccessLoading = false;
             m_hasAdminAccess = false;
             m_portalCapabilities.clear();
-    m_portalSourceCodes.clear();
-    m_portalSources.clear();
+            m_portalSourceCodes.clear();
+            m_portalSources.clear();
+            m_portalGeoShareEnabled = false;
+            m_portalGeoLocationMode = QStringLiteral("off");
 
             if (!reply) {
                 emit portalAccessChanged();
@@ -2984,6 +3197,25 @@ void ReflectorClient::refreshPortalAccess()
                         }
                     }
 
+                    const QJsonObject geo =
+                        document.object()
+                            .value(QStringLiteral("geo"))
+                            .toObject();
+
+                    m_portalGeoShareEnabled =
+                        geo.value(QStringLiteral("share_enabled"))
+                            .toBool(false);
+
+                    m_portalGeoLocationMode =
+                        geo.value(QStringLiteral("location_mode"))
+                            .toString(QStringLiteral("off"))
+                            .trimmed()
+                            .toLower();
+
+                    if (m_portalGeoShareEnabled &&
+                        m_portalGeoLocationMode != QStringLiteral("off"))
+                        requestLocationPermissionIfNeeded();
+
                     const QJsonArray sources =
                         document.object()
                             .value(QStringLiteral("sources"))
@@ -3025,6 +3257,19 @@ void ReflectorClient::refreshPortalAccess()
                                 .toLower()
                         );
                         source.insert(
+                            QStringLiteral("dataMode"),
+                            object.value(QStringLiteral("data_mode"))
+                                .toString()
+                                .trimmed()
+                                .toLower()
+                        );
+                        source.insert(
+                            QStringLiteral("icon"),
+                            object.value(QStringLiteral("icon"))
+                                .toString()
+                                .trimmed()
+                        );
+                        source.insert(
                             QStringLiteral("endpoint"),
                             object.value(QStringLiteral("endpoint"))
                                 .toString()
@@ -3063,6 +3308,66 @@ void ReflectorClient::refreshPortalAccess()
     emit portalAccessChanged();
 #endif
 }
+
+void ReflectorClient::updatePortalGeoLocation(
+    double latitude,
+    double longitude,
+    double accuracyMeters)
+{
+#if defined(Q_OS_ANDROID)
+
+    if (!m_portalGeoShareEnabled ||
+        m_portalGeoLocationMode == QStringLiteral("off"))
+        return;
+
+    const QJniObject context = androidQtContext();
+    if (!context.isValid())
+        return;
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token = tokenObject.toString().trimmed();
+    if (token.isEmpty())
+        return;
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("lat"), latitude);
+    payload.insert(QStringLiteral("lon"), longitude);
+    payload.insert(QStringLiteral("accuracy_m"), accuracyMeters);
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/latry_geo_update.php")));
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8());
+
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json"));
+
+    QNetworkReply *reply =
+        m_networkManager->post(
+            request,
+            QJsonDocument(payload).toJson(QJsonDocument::Compact));
+
+    connect(reply, &QNetworkReply::finished,
+            reply, &QNetworkReply::deleteLater);
+
+#else
+    Q_UNUSED(latitude)
+    Q_UNUSED(longitude)
+    Q_UNUSED(accuracyMeters)
+#endif
+}
+
+
 
 void ReflectorClient::refreshPortalSource(
     const QString &code,
@@ -3467,6 +3772,37 @@ bool ReflectorClient::hasAuthorizedRecordAudioPermission() const
         "QtAndroidPrivate::checkPermission(RECORD_AUDIO)");
     return result.has_value()
             && result.value() == QtAndroidPrivate::PermissionResult::Authorized;
+}
+
+bool ReflectorClient::hasAuthorizedLocationPermission() const
+{
+    QLocationPermission permission;
+
+    permission.setAccuracy(
+        m_portalGeoLocationMode == QStringLiteral("precise")
+            ? QLocationPermission::Precise
+            : QLocationPermission::Approximate);
+
+    return QCoreApplication::instance()->checkPermission(permission)
+           == Qt::PermissionStatus::Granted;
+}
+
+void ReflectorClient::requestLocationPermissionIfNeeded()
+{
+    if (hasAuthorizedLocationPermission())
+        return;
+
+    QLocationPermission permission;
+
+    permission.setAccuracy(
+        m_portalGeoLocationMode == QStringLiteral("precise")
+            ? QLocationPermission::Precise
+            : QLocationPermission::Approximate);
+
+    QCoreApplication::instance()->requestPermission(
+        permission,
+        this,
+        [](const QPermission &) {});
 }
 
 void ReflectorClient::refreshHardwarePttSettings()

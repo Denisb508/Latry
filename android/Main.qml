@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtCore
+import QtPositioning
 import SvxlinkReflector.Client 1.0
 import "ProfileUtils.js" as ProfileUtils
 
@@ -14,6 +15,23 @@ Window {
     visible: true
     title: qsTr("Latry")
     color: "#f4f7fb"
+
+    PositionSource {
+        id: geoPositionSource
+        active: ReflectorClient.portalGeoShareEnabled
+                && ReflectorClient.portalGeoLocationMode !== "off"
+        updateInterval: 60000
+
+        onPositionChanged: {
+            if (!position.coordinate.isValid)
+                return
+
+            ReflectorClient.updatePortalGeoLocation(
+                position.coordinate.latitude,
+                position.coordinate.longitude,
+                position.horizontalAccuracy)
+        }
+    }
 
     property color accentColor: "#2c5cff"
     property color surfaceColor: "#ffffff"
@@ -835,6 +853,7 @@ Window {
 
             onOpenSettingsRequested: stackView.push(settingsPageComponent)
             onOpenAdminRequested: stackView.push(adminPageComponent)
+            onOpenMapRequested: stackView.push(mapPageComponent)
             onOpenProfileSwitcherRequested: quickProfileDialog.open()
             onOpenTalkgroupSwitcherRequested: quickTalkgroupDialog.open()
             onConnectRequested: window.connectSelectedProfile()
@@ -869,6 +888,25 @@ Window {
     }
 
     Component {
+        id: mapPageComponent
+
+        MapPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            surfaceColor: window.surfaceColor
+            borderColor: window.borderColor
+            accentColor: window.accentColor
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
+        }
+    }
+
+    Component {
         id: adminPageComponent
 
         AdminPage {
@@ -888,6 +926,23 @@ Window {
             onGroupsRequested: stackView.push(adminGroupsPageComponent)
             onSourcesRequested: stackView.push(adminSourcesPageComponent)
             onDevicesRequested: stackView.push(adminDevicesPageComponent)
+            onGeoRequested: stackView.push(adminGeoPageComponent)
+        }
+    }
+
+    Component {
+        id: adminGeoPageComponent
+
+        AdminGeoPage {
+            uiMetrics: uiMetrics
+            contentPadding: window.contentPadding
+            safeAreaTop: window.SafeArea.margins.top
+            safeAreaLeft: window.SafeArea.margins.left
+            safeAreaRight: window.SafeArea.margins.right
+            safeAreaBottom: window.SafeArea.margins.bottom
+            reflectorClient: ReflectorClient
+
+            onBackRequested: stackView.pop()
         }
     }
 

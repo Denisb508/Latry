@@ -5,8 +5,10 @@
     <file>BatteryOptimizationDialog.qml</file>
     <file>AudioLevelMeter.qml</file>
     <file>HomePage.qml</file>
+    <file>MapPage.qml</file>
     <file>SettingsPage.qml</file>
     <file>AdminPage.qml</file>
+    <file>AdminGeoPage.qml</file>
     <file>AdminUsersPage.qml</file>
     <file>AdminGroupsPage.qml</file>
     <file>AdminSourcesPage.qml</file>

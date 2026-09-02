@@ -21,6 +21,7 @@ Page {
     signal groupsRequested()
     signal sourcesRequested()
     signal devicesRequested()
+    signal geoRequested()
 
     function hasCapability(code) {
         return page.portalCapabilities
@@ -104,6 +105,16 @@ Page {
                 secondaryText: qsTr("SvxReflector, FRN in prihodnji viri")
                 accentColor: page.accentColor
                 onClicked: page.sourcesRequested()
+            }
+
+            QuickSwitchTile {
+                Layout.fillWidth: true
+                visible: page.hasCapability("APP_GEO_MANAGE")
+                labelText: qsTr("🗺 GEO")
+                primaryText: qsTr("Lokacije uporabnikov")
+                secondaryText: qsTr("GPS deljenje in vidnost")
+                accentColor: page.accentColor
+                onClicked: page.geoRequested()
             }
 
             QuickSwitchTile {

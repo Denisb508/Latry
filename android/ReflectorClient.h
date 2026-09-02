@@ -96,7 +96,10 @@ class ReflectorClient : public QObject
     Q_PROPERTY(QStringList portalCapabilities READ portalCapabilities NOTIFY portalAccessChanged)
     Q_PROPERTY(QStringList portalSourceCodes READ portalSourceCodes NOTIFY portalAccessChanged)
     Q_PROPERTY(QVariantList portalSources READ portalSources NOTIFY portalAccessChanged)
+    Q_PROPERTY(bool portalGeoShareEnabled READ portalGeoShareEnabled NOTIFY portalAccessChanged)
+    Q_PROPERTY(QString portalGeoLocationMode READ portalGeoLocationMode NOTIFY portalAccessChanged)
     Q_PROPERTY(QVariantList portalAdminUsers READ portalAdminUsers NOTIFY portalAdminUsersChanged)
+    Q_PROPERTY(QVariantList portalAdminGeoUsers READ portalAdminGeoUsers NOTIFY portalAdminGeoUsersChanged)
     Q_PROPERTY(QVariantList portalAdminGroups READ portalAdminGroups NOTIFY portalAdminGroupsChanged)
     Q_PROPERTY(QVariantList portalAdminSources READ portalAdminSources NOTIFY portalAdminSourcesChanged)
     Q_PROPERTY(QVariantList portalAdminTokens READ portalAdminTokens NOTIFY portalAdminTokensChanged)
@@ -151,7 +154,10 @@ public:
     QStringList portalCapabilities() const { return m_portalCapabilities; }
     QStringList portalSourceCodes() const { return m_portalSourceCodes; }
     QVariantList portalSources() const { return m_portalSources; }
+    bool portalGeoShareEnabled() const { return m_portalGeoShareEnabled; }
+    QString portalGeoLocationMode() const { return m_portalGeoLocationMode; }
     QVariantList portalAdminUsers() const { return m_portalAdminUsers; }
+    QVariantList portalAdminGeoUsers() const { return m_portalAdminGeoUsers; }
     QVariantList portalAdminGroups() const { return m_portalAdminGroups; }
     QVariantList portalAdminSources() const { return m_portalAdminSources; }
     QVariantList portalAdminTokens() const { return m_portalAdminTokens; }
@@ -194,6 +200,11 @@ public:
     Q_INVOKABLE bool savePortalToken(const QString &token);
     Q_INVOKABLE void clearPortalToken();
     Q_INVOKABLE void refreshPortalAccess();
+    Q_INVOKABLE void updatePortalGeoLocation(
+        double latitude,
+        double longitude,
+        double accuracyMeters);
+
     Q_INVOKABLE void refreshPortalSource(
         const QString &code,
         const QString &endpoint);
@@ -206,6 +217,7 @@ public:
         bool vibration,
         bool notification);
     Q_INVOKABLE void refreshPortalAdminUsers();
+    Q_INVOKABLE void refreshPortalAdminGeo();
     Q_INVOKABLE void refreshPortalAdminGroups();
     Q_INVOKABLE void refreshPortalAdminSources();
     Q_INVOKABLE void refreshPortalAdminTokens();
@@ -234,6 +246,11 @@ public:
         const QStringList &groups);
     Q_INVOKABLE void deletePortalAdminUser(
         const QString &callsign);
+    Q_INVOKABLE void savePortalAdminGeo(
+        int userId,
+        bool shareEnabled,
+        const QString &locationMode,
+        const QStringList &visibleGroups);
     Q_INVOKABLE void ensurePortalAccess(const QString &callsign, const QString &authKey);
 
     void prepareForShutdown();
@@ -274,6 +291,8 @@ private:
 #if defined(Q_OS_ANDROID)
     bool hasAuthorizedRecordAudioPermission() const;
     void requestRecordAudioPermissionIfNeeded();
+    bool hasAuthorizedLocationPermission() const;
+    void requestLocationPermissionIfNeeded();
     void handleRecordAudioPermissionResult(bool authorized);
     void triggerTxTimeoutWarningHaptic();
     void resumeAndroidPttAfterReconnectIfReady();
@@ -316,6 +335,10 @@ signals:
         const QVariantMap &data,
         const QString &error);
     void portalAdminUsersChanged();
+    void portalAdminGeoUsersChanged();
+    void portalAdminGeoSaveFinished(
+        bool success,
+        const QString &message);
     void portalAdminGroupsChanged();
     void portalAdminSourcesChanged();
     void portalAdminTokensChanged();
@@ -640,8 +663,13 @@ private:
     QStringList m_portalCapabilities;
     QStringList m_portalSourceCodes;
     QVariantList m_portalSources;
+    bool m_portalGeoShareEnabled = false;
+    QString m_portalGeoLocationMode = QStringLiteral("off");
     QVariantList m_portalAdminUsers;
     QNetworkReply* m_portalAdminUsersReply = nullptr;
+    QVariantList m_portalAdminGeoUsers;
+    QNetworkReply* m_portalAdminGeoReply = nullptr;
+    QNetworkReply* m_portalAdminGeoSaveReply = nullptr;
     QVariantList m_portalAdminGroups;
     QNetworkReply* m_portalAdminGroupsReply = nullptr;
     QVariantList m_portalAdminSources;

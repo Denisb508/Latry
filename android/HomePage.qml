@@ -57,6 +57,7 @@ Page {
 
     signal openSettingsRequested()
     signal openAdminRequested()
+    signal openMapRequested()
     signal openTalkerWatchRequested()
     signal openProfileSwitcherRequested()
     signal openTalkgroupSwitcherRequested()
@@ -238,9 +239,43 @@ Page {
         return ""
     }
 
-    function isActivityUsersDmr() {
-        return page.portalSourceType(
-                    page.activityUsersSource) === "dmr"
+    function portalSourceDataMode(code) {
+        const wanted =
+            String(code || "").trim().toUpperCase()
+
+        const sources =
+            page.reflectorClient.portalSources || []
+
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+
+            if (String(source.code || "")
+                    .trim().toUpperCase() === wanted)
+                return String(source.dataMode || "presence")
+                        .trim().toLowerCase()
+        }
+
+        return "presence"
+    }
+
+    function isActivitySource() {
+        return page.portalSourceDataMode(
+                    page.activityUsersSource) === "activity"
+    }
+
+    function hasGeoSources() {
+        const sources =
+            page.reflectorClient.portalSources || []
+
+        for (let i = 0; i < sources.length; ++i) {
+            const source = sources[i]
+
+            if (String(source.dataMode || "presence")
+                    .trim().toLowerCase() === "geo")
+                return true
+        }
+
+        return false
     }
 
     function dmrActivityTime(timestamp) {
@@ -410,7 +445,7 @@ Page {
     }
 
     function activityUsers() {
-        if (page.isActivityUsersDmr())
+        if (page.isActivitySource())
             return page.dmrActivityItems()
 
         const result = []
@@ -740,6 +775,9 @@ Page {
             const source = sources[i]
             const code = String(source.code || "").trim().toUpperCase()
             const type = String(source.type || "").trim().toLowerCase()
+            const dataMode =
+                String(source.dataMode || "presence")
+                    .trim().toLowerCase()
 
             if (!code || type === "svxreflector")
                 continue
@@ -751,8 +789,8 @@ Page {
 
             const data = state.data
 
-            // DMR uporablja active[] namesto FRN-style talker{}.
-            if (type === "dmr") {
+            // Activity sources uporabljajo active[] namesto presence talker{}.
+            if (dataMode === "activity") {
                 const activeItems = data.active || []
 
                 if (activeItems.length <= 0)
@@ -1373,7 +1411,7 @@ Page {
 
                     Label {
                         Layout.fillWidth: true
-                        text: page.isActivityUsersDmr()
+                        text: page.isActivitySource()
                               ? qsTr("%1 dogodkov • zadnjih 60 min")
                                     .arg(page.activityUsers().length)
                               : qsTr("%1 uporabnikov")
@@ -1404,7 +1442,7 @@ Page {
                     required property var modelData
 
                     width: activityUsersList.width
-                    height: page.isActivityUsersDmr()
+                    height: page.isActivitySource()
                             ? (modelData.active ? 88 : 76)
                             : (modelData.active ? 64 : 58)
                     radius: 10
@@ -1448,7 +1486,7 @@ Page {
 
                         Label {
                             width: parent.width
-                            visible: page.isActivityUsersDmr()
+                            visible: page.isActivitySource()
 
                             text: modelData.active
                                   ? qsTr("Zdaj")
@@ -1471,7 +1509,7 @@ Page {
                         Label {
                             width: parent.width
 
-                            text: page.isActivityUsersDmr()
+                            text: page.isActivitySource()
                                   ? String(modelData.route || "")
                                   : String(modelData.room
                                            || modelData.source
@@ -1505,7 +1543,7 @@ Page {
             Label {
                 visible: page.activityUsers().length === 0
                 Layout.fillWidth: true
-                text: page.isActivityUsersDmr()
+                text: page.isActivitySource()
                       ? qsTr("V zadnjih 60 minutah ni DMR aktivnosti.")
                       : qsTr("Trenutno ni uporabnikov.")
                 horizontalAlignment: Text.AlignHCenter
@@ -1936,6 +1974,16 @@ Page {
                                 font.pixelSize: page.compactMode ? 12 : 13
                                 font.bold: true
                                 color: "#0f172a"
+                            }
+
+                            ToolButton {
+                                visible: page.hasGeoSources()
+                                text: "🗺"
+                                font.pixelSize: 18
+                                Accessible.name: qsTr("Zemljevid")
+
+                                onClicked:
+                                    page.openMapRequested()
                             }
 
                             ToolButton {
