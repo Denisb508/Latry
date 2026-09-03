@@ -13,9 +13,9 @@ The project keeps the lightweight PTT/VoIP experience of Latry while adding live
 
 ## 📥 Android test build
 
-Current Android test builds are published through the SVXportal application page:
+Current Android test builds are published publicly through GitHub Releases:
 
-**➡️ [Download Latry by OB508 APK](https://svxportal.pmr446.si/apps.php)**
+**➡️ [Download Latry by OB508 APK](https://github.com/Denisb508/Latry/releases)**
 
 The OB508 Android builds use a stable application signing key and increasing Android `versionCode`, allowing subsequent builds to be installed as normal app updates.
 
@@ -235,7 +235,6 @@ git checkout feature/talker-pip-overlay
 - **Latry by OB508 repository:** https://github.com/Denisb508/Latry
 - **OB508 development branch:** https://github.com/Denisb508/Latry/tree/feature/talker-pip-overlay
 - **Android build workflow:** https://github.com/Denisb508/Latry/actions/workflows/android-debug-build.yml
-- **SVXportal APK page:** https://svxportal.pmr446.si/apps.php
 - **Original Latry website:** https://latry.app
 - **Original upstream repository:** https://github.com/s1lviu/Latry
 
