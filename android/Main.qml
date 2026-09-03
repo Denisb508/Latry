@@ -16,11 +16,57 @@ Window {
     title: qsTr("Latry")
     color: "#f4f7fb"
 
+    property bool geoTrackingEnabled: false
+
+    readonly property bool geoTrackingAllowed:
+        ReflectorClient.portalCapabilities
+        && ReflectorClient.portalCapabilities.indexOf(
+               "APP_GEO_TRACKING") >= 0
+
+    onGeoTrackingAllowedChanged: {
+        if (!window.geoTrackingAllowed)
+            window.geoTrackingEnabled = false
+    }
+
+    function geoTrackingIntervalMs() {
+        const mode = String(saved.geoTrackingMode || "smart")
+
+        if (mode === "10")
+            return 10000
+        if (mode === "15")
+            return 15000
+        if (mode === "30")
+            return 30000
+        if (mode === "60")
+            return 60000
+
+        // SMART: hitrost iz QtPositioning je v m/s.
+        const speed = Number(geoPositionSource.position.speed)
+
+        if (!Number.isFinite(speed) || speed < 0)
+            return 30000
+
+        const speedKmh = speed * 3.6
+
+        if (speedKmh < 1)
+            return 60000
+        if (speedKmh < 10)
+            return 30000
+        if (speedKmh < 60)
+            return 15000
+
+        return 10000
+    }
+
     PositionSource {
         id: geoPositionSource
         active: ReflectorClient.portalGeoShareEnabled
                 && ReflectorClient.portalGeoLocationMode !== "off"
-        updateInterval: 60000
+        updateInterval:
+            window.geoTrackingEnabled
+            && window.geoTrackingAllowed
+            ? window.geoTrackingIntervalMs()
+            : 60000
 
         onPositionChanged: {
             if (!position.coordinate.isValid)
@@ -157,6 +203,9 @@ Window {
         property bool showReflectorUsers: true
         property bool showFrnUsers: false
         property bool liveTranscriptionEnabled: false
+
+        // GEO Tracking - lokalna nastavitev tega telefona
+        property string geoTrackingMode: "smart"
 
         // Talker Watch - lokalne nastavitve tega telefona
         property string talkerWatchJson: "[]"
@@ -901,6 +950,21 @@ Window {
             borderColor: window.borderColor
             accentColor: window.accentColor
             reflectorClient: ReflectorClient
+            trackingEnabled: window.geoTrackingEnabled
+            trackingMode: saved.geoTrackingMode
+
+            onTrackingModeRequested: mode => {
+                saved.geoTrackingMode = mode
+            }
+
+            onTrackingRequested: enabled => {
+                if (!window.geoTrackingAllowed) {
+                    window.geoTrackingEnabled = false
+                    return
+                }
+
+                window.geoTrackingEnabled = enabled
+            }
 
             onBackRequested: stackView.pop()
         }

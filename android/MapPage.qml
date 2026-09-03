@@ -17,6 +17,8 @@ Page {
     required property color borderColor
     required property color accentColor
     required property var reflectorClient
+    required property bool trackingEnabled
+    required property string trackingMode
 
     property string geoSourceCode: ""
     property string geoEndpoint: ""
@@ -25,7 +27,24 @@ Page {
     property bool loading: false
     property string statusText: ""
 
+    readonly property var portalCapabilities:
+        page.reflectorClient.portalCapabilities || []
+
+    readonly property bool canPrecise:
+        page.portalCapabilities.indexOf("APP_GEO_PRECISE") >= 0
+
+    readonly property bool canTracking:
+        page.portalCapabilities.indexOf("APP_GEO_TRACKING") >= 0
+
+    readonly property bool canBackgroundTracking:
+        page.portalCapabilities.indexOf("APP_GEO_BACKGROUND") >= 0
+
+    readonly property bool canHistory:
+        page.portalCapabilities.indexOf("APP_GEO_HISTORY") >= 0
+
     signal backRequested()
+    signal trackingRequested(bool enabled)
+    signal trackingModeRequested(string mode)
 
     function discoverGeoSource() {
         const sources = page.reflectorClient.portalSources || []
@@ -151,13 +170,72 @@ Page {
                 font.bold: true
             }
 
-            ToolButton {
+            Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                text: "↻"
-                font.pixelSize: 20
-                enabled: !page.loading
-                onClicked: page.refreshGeo()
+                spacing: 4
+
+                ToolButton {
+                    visible: page.canTracking
+                    text: page.trackingEnabled ? "🟢" : "🚗"
+                    font.pixelSize: 19
+                    enabled: true
+
+                    onClicked:
+                        page.trackingRequested(!page.trackingEnabled)
+
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        page.trackingEnabled
+                        ? qsTr("Live Tracking je vklopljen")
+                        : qsTr("Vklopi Live Tracking")
+                }
+
+                ToolButton {
+                    text: "↻"
+                    font.pixelSize: 20
+                    enabled: !page.loading
+                    onClicked: page.refreshGeo()
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: page.canTracking
+            spacing: 8
+
+            Label {
+                text: "🚗 " + qsTr("Tracking:")
+                font.bold: true
+            }
+
+            ComboBox {
+                id: trackingModeBox
+                Layout.fillWidth: true
+
+                model: [
+                    { text: "🧠 Smart", value: "smart" },
+                    { text: "⚡ 10 s", value: "10" },
+                    { text: "🚗 15 s", value: "15" },
+                    { text: "🕒 30 s", value: "30" },
+                    { text: "🔋 60 s", value: "60" }
+                ]
+
+                textRole: "text"
+                valueRole: "value"
+
+                Component.onCompleted: {
+                    const index =
+                        indexOfValue(page.trackingMode || "smart")
+
+                    currentIndex = index >= 0 ? index : 0
+                }
+
+                onActivated: {
+                    page.trackingModeRequested(
+                        String(currentValue || "smart"))
+                }
             }
         }
 
