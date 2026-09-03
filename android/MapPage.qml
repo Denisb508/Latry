@@ -21,6 +21,7 @@ Page {
     required property bool trackingEnabled
     required property string trackingMode
     required property string movementIcon
+    required property string movementWatchJson
 
     property string geoSourceCode: ""
     property string geoEndpoint: ""
@@ -29,6 +30,9 @@ Page {
     property bool loading: false
     property string statusText: ""
     property var localTrackPath: []
+
+    // Movement Watch - zadnje znano stanje spremljanih uporabnikov
+    property var movementWatchStates: ({})
 
     readonly property var portalCapabilities:
         page.reflectorClient.portalCapabilities || []
@@ -48,6 +52,437 @@ Page {
     signal backRequested()
     signal trackingRequested(bool enabled)
     signal trackingModeRequested(string mode)
+    signal movementWatchSettingsChanged(string watchJson)
+
+    function movementWatchCallsigns() {
+        try {
+            const parsed =
+                JSON.parse(page.movementWatchJson || "[]")
+
+            if (!parsed || !Array.isArray(parsed))
+                return []
+
+            const result = []
+
+            for (let i = 0; i < parsed.length; ++i) {
+                const callsign =
+                    String(parsed[i] || "")
+                        .trim().toUpperCase()
+
+                if (callsign
+                        && result.indexOf(callsign) < 0)
+                    result.push(callsign)
+            }
+
+            return result
+        } catch (error) {
+            console.warn(
+                "Invalid Movement Watch JSON",
+                error)
+            return []
+        }
+    }
+
+    function isMovementWatched(callsign) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        return page.movementWatchCallsigns()
+            .indexOf(wanted) >= 0
+    }
+
+    function setMovementWatched(callsign, enabled) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        if (!wanted)
+            return
+
+        const watch =
+            page.movementWatchCallsigns()
+
+        const index =
+            watch.indexOf(wanted)
+
+        const changed =
+            (enabled && index < 0)
+            || (!enabled && index >= 0)
+
+        if (!changed)
+            return
+
+        if (enabled)
+            watch.push(wanted)
+        else
+            watch.splice(index, 1)
+
+        watch.sort()
+
+        page.movementWatchSettingsChanged(
+            JSON.stringify(watch))
+
+        if (enabled)
+            page.seedMovementWatchState(wanted)
+        else
+            page.clearMovementWatchState(wanted)
+    }
+
+    function seedMovementWatchState(callsign) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        if (!wanted)
+            return
+
+        const next =
+            Object.assign(
+                {},
+                page.movementWatchStates || ({}))
+
+        for (let i = 0; i < page.stations.length; ++i) {
+            const station = page.stations[i] || {}
+
+            const stationCallsign =
+                String(station.callsign || "")
+                    .trim().toUpperCase()
+
+            if (stationCallsign !== wanted)
+                continue
+
+            const lat = Number(station.lat)
+            const lon = Number(station.lon)
+
+            if (!Number.isFinite(lat)
+                    || !Number.isFinite(lon))
+                return
+
+            let accuracy =
+                Number(station.accuracy_m)
+
+            if (!Number.isFinite(accuracy))
+                accuracy = Number(station.accuracy)
+
+            if (!Number.isFinite(accuracy)
+                    || accuracy < 0)
+                accuracy = 0
+
+            let speedKmh =
+                Number(station.speed_kmh)
+
+            if (!Number.isFinite(speedKmh)
+                    || speedKmh < 0)
+                speedKmh = 0
+
+            next[wanted] = {
+                lat: lat,
+                lon: lon,
+                accuracy: accuracy,
+                totalMeters: 0,
+                lastMoveMs: 0,
+                moving: speedKmh >= 1,
+                speedKmh: speedKmh
+            }
+
+            page.movementWatchStates = next
+            return
+        }
+    }
+
+    function clearMovementWatchState(callsign) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        const next =
+            Object.assign(
+                {},
+                page.movementWatchStates || ({}))
+
+        delete next[wanted]
+        page.movementWatchStates = next
+    }
+
+    function geoDistanceMeters(lat1, lon1, lat2, lon2) {
+        const earthRadius = 6371000
+        const toRad = Math.PI / 180
+
+        const dLat = (lat2 - lat1) * toRad
+        const dLon = (lon2 - lon1) * toRad
+
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2)
+            + Math.cos(lat1 * toRad)
+            * Math.cos(lat2 * toRad)
+            * Math.sin(dLon / 2)
+            * Math.sin(dLon / 2)
+
+        return earthRadius
+            * 2
+            * Math.atan2(
+                Math.sqrt(a),
+                Math.sqrt(1 - a))
+    }
+
+    function updateMovementWatchStates(stations) {
+        const watched = page.movementWatchCallsigns()
+        const previous = page.movementWatchStates || ({})
+        const next = Object.assign({}, previous)
+        const nowMs = Date.now()
+
+        for (let i = 0; i < stations.length; ++i) {
+            const station = stations[i] || {}
+
+            const callsign =
+                String(station.callsign || "")
+                    .trim().toUpperCase()
+
+            if (!callsign
+                    || watched.indexOf(callsign) < 0)
+                continue
+
+            const lat = Number(station.lat)
+            const lon = Number(station.lon)
+
+            if (!Number.isFinite(lat)
+                    || !Number.isFinite(lon))
+                continue
+
+            let accuracy =
+                Number(station.accuracy_m)
+
+            if (!Number.isFinite(accuracy))
+                accuracy = Number(station.accuracy)
+
+            if (!Number.isFinite(accuracy)
+                    || accuracy < 0)
+                accuracy = 0
+
+            let speedKmh =
+                Number(station.speed_kmh)
+
+            if (!Number.isFinite(speedKmh)
+                    || speedKmh < 0)
+                speedKmh = 0
+
+            const old = previous[callsign]
+
+            if (!old) {
+                next[callsign] = {
+                    lat: lat,
+                    lon: lon,
+                    accuracy: accuracy,
+                    totalMeters: 0,
+                    lastMoveMs: 0,
+                    moving: speedKmh >= 1,
+                    speedKmh: speedKmh
+                }
+                continue
+            }
+
+            const distance =
+                page.geoDistanceMeters(
+                    Number(old.lat),
+                    Number(old.lon),
+                    lat,
+                    lon)
+
+            const threshold =
+                Math.max(
+                    30,
+                    accuracy * 2,
+                    Number(old.accuracy || 0) * 2)
+
+            const moved =
+                Number.isFinite(distance)
+                && distance >= threshold
+
+            if (moved) {
+                next[callsign] = {
+                    lat: lat,
+                    lon: lon,
+                    accuracy: accuracy,
+                    totalMeters:
+                        Number(old.totalMeters || 0)
+                        + distance,
+                    lastMoveMs: nowMs,
+                    moving: true,
+                    speedKmh: speedKmh
+                }
+            } else {
+                next[callsign] =
+                    Object.assign({}, old, {
+                        accuracy: accuracy,
+                        moving: speedKmh >= 1,
+                        speedKmh: speedKmh
+                    })
+            }
+        }
+
+        page.movementWatchStates = next
+    }
+
+    function nearestGeoStationStatus(callsign) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        if (!wanted)
+            return ""
+
+        let source = null
+
+        for (let i = 0; i < page.stations.length; ++i) {
+            const station = page.stations[i] || {}
+
+            if (String(station.callsign || "")
+                    .trim().toUpperCase() === wanted) {
+                source = station
+                break
+            }
+        }
+
+        if (!source)
+            return ""
+
+        const sourceLat = Number(source.lat)
+        const sourceLon = Number(source.lon)
+
+        if (!Number.isFinite(sourceLat)
+                || !Number.isFinite(sourceLon))
+            return ""
+
+        const nearby = []
+
+        for (let i = 0; i < page.stations.length; ++i) {
+            const station = page.stations[i] || {}
+
+            const otherCallsign =
+                String(station.callsign || "")
+                    .trim().toUpperCase()
+
+            if (!otherCallsign || otherCallsign === wanted)
+                continue
+
+            const lat = Number(station.lat)
+            const lon = Number(station.lon)
+
+            if (!Number.isFinite(lat)
+                    || !Number.isFinite(lon))
+                continue
+
+            const distance =
+                page.geoDistanceMeters(
+                    sourceLat,
+                    sourceLon,
+                    lat,
+                    lon)
+
+            if (!Number.isFinite(distance))
+                continue
+
+            nearby.push({
+                callsign: otherCallsign,
+                meters: distance
+            })
+        }
+
+        nearby.sort(function(a, b) {
+            return a.meters - b.meters
+        })
+
+        if (nearby.length === 0)
+            return ""
+
+        const lines = [
+            "📏 " + qsTr("Nearest GEO") + ":"
+        ]
+
+        const count =
+            Math.min(3, nearby.length)
+
+        for (let i = 0; i < count; ++i) {
+            const item = nearby[i]
+
+            const distanceText =
+                item.meters >= 1000
+                ? (item.meters / 1000).toFixed(1) + " km"
+                : Math.round(item.meters) + " m"
+
+            lines.push(
+                (i + 1)
+                + ". "
+                + item.callsign
+                + "   • "
+                + distanceText)
+        }
+
+        return lines.join("\n")
+    }
+
+    function movementWatchStatus(callsign) {
+        const wanted =
+            String(callsign || "")
+                .trim().toUpperCase()
+
+        if (!wanted || !page.isMovementWatched(wanted))
+            return ""
+
+        const state =
+            (page.movementWatchStates || ({}))[wanted]
+
+        if (!state)
+            return qsTr("📍 Waiting for GEO update")
+
+        const totalMeters =
+            Number(state.totalMeters || 0)
+
+        if (state.moving
+                && Number(state.speedKmh || 0) >= 1) {
+            return "🚗 " + qsTr("MOVING")
+                + "   "
+                + Math.round(Number(state.speedKmh))
+                + " km/h"
+        }
+
+        if (totalMeters <= 0)
+            return qsTr("📍 No movement detected yet")
+
+        const distanceText =
+            totalMeters >= 1000
+            ? (totalMeters / 1000).toFixed(1) + " km"
+            : Math.round(totalMeters) + " m"
+
+        let timeText = ""
+
+        const lastMoveMs =
+            Number(state.lastMoveMs || 0)
+
+        if (lastMoveMs > 0) {
+            const d = new Date(lastMoveMs)
+
+            const hh =
+                String(d.getHours()).padStart(2, "0")
+
+            const mm =
+                String(d.getMinutes()).padStart(2, "0")
+
+            timeText = hh + ":" + mm
+        }
+
+        return "🚗 "
+            + qsTr("Moved")
+            + " "
+            + distanceText
+            + (timeText
+               ? "   • "
+                 + qsTr("Last move")
+                 + ": "
+                 + timeText
+               : "")
+    }
 
     function refreshLocalTrack() {
         const rawPoints = TrackStore.currentTrack()
@@ -130,6 +565,9 @@ Page {
                     && lat >= -90 && lat <= 90
                     && lon >= -180 && lon <= 180
         })
+
+        page.updateMovementWatchStates(
+            page.stations)
 
         page.statusText =
             page.stations.length === 0
@@ -459,6 +897,70 @@ Page {
                 color: "#475569"
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+
+                text:
+                    page.nearestGeoStationStatus(
+                        detailsCallsign.text)
+
+                visible:
+                    text.length > 0
+
+                horizontalAlignment:
+                    Text.AlignHCenter
+
+                wrapMode:
+                    Text.WordWrap
+
+                color: "#475569"
+            }
+
+            CheckBox {
+                id: movementWatchCheck
+                Layout.alignment: Qt.AlignHCenter
+
+                text: qsTr("Movement Watch")
+
+                checked:
+                    page.isMovementWatched(
+                        detailsCallsign.text)
+
+                enabled:
+                    String(detailsCallsign.text || "")
+                        .length > 0
+
+                onToggled: {
+                    page.setMovementWatched(
+                        detailsCallsign.text,
+                        checked)
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+
+                visible:
+                    page.isMovementWatched(
+                        detailsCallsign.text)
+
+                text:
+                    page.movementWatchStatus(
+                        detailsCallsign.text)
+
+                font.bold: true
+                font.pixelSize: 14
+
+                horizontalAlignment:
+                    Text.AlignHCenter
+
+                wrapMode:
+                    Text.WordWrap
+
+                color:
+                    page.accentColor
             }
         }
     }

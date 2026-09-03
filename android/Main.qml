@@ -500,6 +500,9 @@ Window {
         // Talker Watch - lokalne nastavitve tega telefona
         property string talkerWatchJson: "[]"
         property bool talkerWatchBeepEnabled: true
+
+        // Movement Watch - lokalni seznam GEO uporabnikov za spremljanje
+        property string movementWatchJson: "[]"
         property bool talkerWatchVibrationEnabled: false
         property bool talkerWatchNotificationEnabled: true
 
@@ -1243,9 +1246,14 @@ Window {
             trackingEnabled: window.geoTrackingEnabled
             trackingMode: saved.geoTrackingMode
             movementIcon: window.geoMovementIcon
+            movementWatchJson: saved.movementWatchJson
 
             onTrackingModeRequested: mode => {
                 saved.geoTrackingMode = mode
+            }
+
+            onMovementWatchSettingsChanged: watchJson => {
+                saved.movementWatchJson = watchJson
             }
 
             onTrackingRequested: enabled => {
