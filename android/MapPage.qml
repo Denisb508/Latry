@@ -150,6 +150,33 @@ Page {
             center: QtPositioning.coordinate(46.15, 14.99)
             zoomLevel: 7.5
 
+            property geoCoordinate startCentroid
+
+            PinchHandler {
+                id: pinch
+                target: null
+
+                onActiveChanged: if (active) {
+                    map.startCentroid =
+                        map.toCoordinate(pinch.centroid.position, false)
+                }
+
+                onScaleChanged: (delta) => {
+                    map.zoomLevel += Math.log2(delta)
+                    map.alignCoordinateToPoint(
+                        map.startCentroid,
+                        pinch.centroid.position)
+                }
+
+                grabPermissions: PointerHandler.TakeOverForbidden
+            }
+
+            DragHandler {
+                target: null
+                onTranslationChanged: (delta) =>
+                    map.pan(-delta.x, -delta.y)
+            }
+
             MapItemView {
                 model: page.stations
 

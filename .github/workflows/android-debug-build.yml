@@ -84,6 +84,11 @@ jobs:
       run: |
         SHORT_SHA="${{ github.sha }}"
         SHORT_SHA=${SHORT_SHA:0:8}
+        VERSION_CODE=$((1000 + ${{ github.run_number }}))
+
+        # Vsak testni build mora imeti visji Android versionCode,
+        # da ga je mogoce namestiti kot posodobitev.
+        sed -i -E "s/set\\(LATRY_VERSION_CODE [0-9]+\\)/set(LATRY_VERSION_CODE ${VERSION_CODE})/" android/CMakeLists.txt
         
         # Update AndroidManifest.xml (ensure proper escaping)
         sed -i "s/android:versionName=\"[^\"]*\"/android:versionName=\"${SHORT_SHA}\"/" android/android/AndroidManifest.xml
@@ -118,6 +123,39 @@ jobs:
       working-directory: android
       run: |
         cmake --build build --target apk
+
+    - name: Sign APK with OB508 key
+      env:
+        LATRY_KEYSTORE_B64: ${{ secrets.LATRY_ANDROID_KEYSTORE_B64 }}
+        LATRY_KEYSTORE_ALIAS: ${{ secrets.LATRY_ANDROID_KEYSTORE_ALIAS }}
+        LATRY_STORE_PASS: ${{ secrets.LATRY_ANDROID_KEYSTORE_STORE_PASS }}
+        LATRY_KEY_PASS: ${{ secrets.LATRY_ANDROID_KEYSTORE_KEY_PASS }}
+      run: |
+        KEYSTORE="$RUNNER_TEMP/latry-ob508.jks"
+        printf '%s' "$LATRY_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+
+        APK_PATH=$(find android/build -name "*.apk" -type f | grep -v latryservice | head -1)
+        if [ -z "$APK_PATH" ]; then
+          echo "No APK found for signing!"
+          exit 1
+        fi
+
+        APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)
+        if [ -z "$APKSIGNER" ]; then
+          echo "apksigner not found!"
+          exit 1
+        fi
+
+        SIGNED_APK="${APK_PATH}.signed"
+
+        "$APKSIGNER" sign           --ks "$KEYSTORE"           --ks-type JKS           --ks-key-alias "$LATRY_KEYSTORE_ALIAS"           --ks-pass env:LATRY_STORE_PASS           --key-pass env:LATRY_KEY_PASS           --out "$SIGNED_APK"           "$APK_PATH"
+
+        mv "$SIGNED_APK" "$APK_PATH"
+
+        echo "=== APK SIGNATURE ==="
+        "$APKSIGNER" verify --verbose --print-certs "$APK_PATH"
+
+        rm -f "$KEYSTORE"
 
     - name: Find and rename APK files
       id: find_apk
