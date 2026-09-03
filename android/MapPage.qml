@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtLocation
 import QtPositioning
+import SvxlinkReflector.Client 1.0
 
 Page {
     id: page
@@ -19,6 +20,7 @@ Page {
     required property var reflectorClient
     required property bool trackingEnabled
     required property string trackingMode
+    required property string movementIcon
 
     property string geoSourceCode: ""
     property string geoEndpoint: ""
@@ -26,6 +28,7 @@ Page {
     property bool initialMapFitDone: false
     property bool loading: false
     property string statusText: ""
+    property var localTrackPath: []
 
     readonly property var portalCapabilities:
         page.reflectorClient.portalCapabilities || []
@@ -45,6 +48,28 @@ Page {
     signal backRequested()
     signal trackingRequested(bool enabled)
     signal trackingModeRequested(string mode)
+
+    function refreshLocalTrack() {
+        const rawPoints = TrackStore.currentTrack()
+        const path = []
+
+        for (let i = 0; i < rawPoints.length; ++i) {
+            const point = rawPoints[i]
+            const lat = Number(point.lat)
+            const lon = Number(point.lon)
+
+            if (!Number.isFinite(lat)
+                    || !Number.isFinite(lon)
+                    || lat < -90 || lat > 90
+                    || lon < -180 || lon > 180)
+                continue
+
+            path.push(
+                QtPositioning.coordinate(lat, lon))
+        }
+
+        page.localTrackPath = path
+    }
 
     function discoverGeoSource() {
         const sources = page.reflectorClient.portalSources || []
@@ -251,6 +276,39 @@ Page {
 
             property geoCoordinate startCentroid
 
+            // Live movement status.
+            Rectangle {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 10
+
+                width: 46
+                height: 46
+                radius: 23
+
+                color: "#f8fafcee"
+                border.color: page.borderColor
+                border.width: 1
+
+                z: 100
+                visible: page.trackingEnabled
+
+                Label {
+                    anchors.centerIn: parent
+                    text: page.movementIcon || "📍"
+                    font.pixelSize: 25
+                }
+
+                ToolTip.visible: movementMouse.containsMouse
+                ToolTip.text: qsTr("Smart Tracking status")
+
+                MouseArea {
+                    id: movementMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                }
+            }
+
             PinchHandler {
                 id: pinch
                 target: null
@@ -274,6 +332,16 @@ Page {
                 target: null
                 onTranslationChanged: (delta) =>
                     map.pan(-delta.x, -delta.y)
+            }
+
+            MapPolyline {
+                id: localTrackLine
+
+                visible: page.localTrackPath.length >= 2
+                path: page.localTrackPath
+
+                line.width: 5
+                line.color: page.accentColor
             }
 
             MapItemView {
@@ -396,6 +464,18 @@ Page {
     }
 
     Connections {
+        target: TrackStore
+
+        function onPointsChanged() {
+            page.refreshLocalTrack()
+        }
+
+        function onSessionChanged() {
+            page.refreshLocalTrack()
+        }
+    }
+
+    Connections {
         target: page.reflectorClient
 
         function onPortalSourceFetchFinished(
@@ -433,6 +513,7 @@ Page {
     }
 
     Component.onCompleted: {
+        page.refreshLocalTrack()
         page.discoverGeoSource()
         page.refreshGeo()
     }

@@ -205,6 +205,9 @@ public:
         double longitude,
         double accuracyMeters);
 
+    Q_INVOKABLE void uploadPortalTrackPoint(
+        const QVariantMap &point);
+
     Q_INVOKABLE void refreshPortalSource(
         const QString &code,
         const QString &endpoint);
@@ -333,6 +336,11 @@ signals:
         const QString &code,
         bool success,
         const QVariantMap &data,
+        const QString &error);
+
+    void portalTrackPointUploadFinished(
+        qint64 pointId,
+        bool success,
         const QString &error);
     void portalAdminUsersChanged();
     void portalAdminGeoUsersChanged();

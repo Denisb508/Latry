@@ -20,6 +20,7 @@
 #include <QQmlApplicationEngine>
 #include <QStringList>
 #include "ReflectorClient.h"
+#include "TrackStore.h"
 #include "AppLaunchMode.h"
 #include "BatteryOptimizationHandler.h"
 #include "SppPttController.h"
@@ -74,6 +75,12 @@ int main(int argc, char *argv[])
 #endif
 
         QQmlApplicationEngine engine;
+
+        // Local-first GPS track storage.
+        // Every tracking point is stored locally before network synchronization.
+        TrackStore *trackStore = new TrackStore(&app);
+        qmlRegisterSingletonInstance<TrackStore>(
+            "SvxlinkReflector.Client", 1, 0, "TrackStore", trackStore);
 
         // Register the already-created singleton instance so QML uses the same object as JNI.
         qmlRegisterSingletonInstance<ReflectorClient>(

@@ -3369,6 +3369,216 @@ void ReflectorClient::updatePortalGeoLocation(
 
 
 
+
+void ReflectorClient::uploadPortalTrackPoint(
+    const QVariantMap &point)
+{
+#if defined(Q_OS_ANDROID)
+
+    const qint64 pointId =
+        point.value(QStringLiteral("id")).toLongLong();
+
+    if (pointId <= 0) {
+        emit portalTrackPointUploadFinished(
+            pointId,
+            false,
+            QStringLiteral("Invalid point id"));
+        return;
+    }
+
+    if (!m_networkManager) {
+        emit portalTrackPointUploadFinished(
+            pointId,
+            false,
+            QStringLiteral("Network manager unavailable"));
+        return;
+    }
+
+    const QJniObject context = androidQtContext();
+
+    if (!context.isValid()) {
+        emit portalTrackPointUploadFinished(
+            pointId,
+            false,
+            QStringLiteral("Android context unavailable"));
+        return;
+    }
+
+    const QJniObject tokenObject =
+        QJniObject::callStaticObjectMethod(
+            "yo6say/latry/LatryPortalTokenStore",
+            "loadToken",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            context.object());
+
+    const QString token =
+        tokenObject.toString().trimmed();
+
+    if (token.isEmpty()) {
+        emit portalTrackPointUploadFinished(
+            pointId,
+            false,
+            QStringLiteral("Portal token unavailable"));
+        return;
+    }
+
+    QJsonObject payload;
+
+    payload.insert(
+        QStringLiteral("lat"),
+        point.value(QStringLiteral("lat")).toDouble());
+
+    payload.insert(
+        QStringLiteral("lon"),
+        point.value(QStringLiteral("lon")).toDouble());
+
+    payload.insert(
+        QStringLiteral("accuracy_m"),
+        point.value(QStringLiteral("accuracy_m")).toDouble());
+
+    payload.insert(
+        QStringLiteral("speed_kmh"),
+        point.value(QStringLiteral("speed_kmh")).toDouble());
+
+    payload.insert(
+        QStringLiteral("heading_deg"),
+        point.value(QStringLiteral("heading_deg")).toDouble());
+
+    payload.insert(
+        QStringLiteral("tracking_mode"),
+        point.value(QStringLiteral("tracking_mode"))
+            .toString());
+
+    payload.insert(
+        QStringLiteral("session_id"),
+        point.value(QStringLiteral("session_id"))
+            .toString());
+
+    payload.insert(
+        QStringLiteral("client_point_id"),
+        pointId);
+
+    payload.insert(
+        QStringLiteral("recorded_at"),
+        point.value(QStringLiteral("recorded_at"))
+            .toString());
+
+    payload.insert(
+        QStringLiteral("tracking"),
+        true);
+
+    // Offline/backfill point:
+    // it must be stored in history, but must not move
+    // the user's current/live position backwards.
+    payload.insert(
+        QStringLiteral("history_only"),
+        true);
+
+    QNetworkRequest request(
+        QUrl(QStringLiteral(
+            "https://svxportal.pmr446.si/"
+            "latry_geo_update.php")));
+
+    request.setRawHeader(
+        "Authorization",
+        QByteArray("Bearer ") + token.toUtf8());
+
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json"));
+
+    QNetworkReply *reply =
+        m_networkManager->post(
+            request,
+            QJsonDocument(payload)
+                .toJson(QJsonDocument::Compact));
+
+    connect(
+        reply,
+        &QNetworkReply::finished,
+        this,
+        [this, reply, pointId]() {
+
+            const QByteArray body =
+                reply->readAll();
+
+            const int httpStatus =
+                reply->attribute(
+                    QNetworkRequest::HttpStatusCodeAttribute)
+                    .toInt();
+
+            bool success = false;
+            QString error;
+
+            if (reply->error() !=
+                QNetworkReply::NoError) {
+
+                error = reply->errorString();
+
+            } else if (httpStatus < 200 ||
+                       httpStatus >= 300) {
+
+                error =
+                    QStringLiteral("HTTP %1")
+                        .arg(httpStatus);
+
+            } else {
+
+                QJsonParseError parseError;
+
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(
+                        body,
+                        &parseError);
+
+                if (parseError.error !=
+                    QJsonParseError::NoError ||
+                    !document.isObject()) {
+
+                    error =
+                        QStringLiteral(
+                            "Invalid server response");
+
+                } else {
+
+                    const QJsonObject object =
+                        document.object();
+
+                    success =
+                        object.value(
+                            QStringLiteral("ok"))
+                            .toBool(false)
+                        &&
+                        object.value(
+                            QStringLiteral(
+                                "tracking_recorded"))
+                            .toBool(false);
+
+                    if (!success) {
+                        error =
+                            object.value(
+                                QStringLiteral("error"))
+                                .toString(
+                                    QStringLiteral(
+                                        "Track point not recorded"));
+                    }
+                }
+            }
+
+            emit portalTrackPointUploadFinished(
+                pointId,
+                success,
+                error);
+
+            reply->deleteLater();
+        });
+
+#else
+    Q_UNUSED(point)
+#endif
+}
+
+
 void ReflectorClient::refreshPortalSource(
     const QString &code,
     const QString &endpoint)

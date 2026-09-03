@@ -37,6 +37,8 @@ set(LATRY_CORE_SOURCES
 
 set(LATRY_APP_SOURCES
     main.cpp
+    TrackStore.cpp
+    TrackStore.h
     ${LATRY_CORE_SOURCES}
     BatteryOptimizationHandler.cpp
     SppPttBridge.cpp
@@ -46,7 +48,7 @@ set(LATRY_APP_SOURCES
 # --- Find/Build All Dependencies FIRST ---
 
 # 1. Find Qt6 - This MUST come before any qt_* commands.
-find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia Bluetooth Location Positioning)
+find_package(Qt6 6.9 REQUIRED COMPONENTS Quick Network Multimedia Bluetooth Location Positioning Sql)
 qt_policy(SET QTP0002 NEW)
 if(ANDROID)
     # The project builds both the main app and a dedicated Qt Android service binary.
@@ -128,6 +130,7 @@ target_link_libraries(applatry PRIVATE
     Qt6::Bluetooth
     Qt6::Location
     Qt6::Positioning
+    Qt6::Sql
 )
 
 if(ANDROID)

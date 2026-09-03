@@ -17,6 +17,18 @@ Window {
     color: "#f4f7fb"
 
     property bool geoTrackingEnabled: false
+    property bool geoTrackSyncBusy: false
+
+    // SMART tracking state
+    property double geoLastTrackPointMs: 0
+    property bool geoLastPositionStationary: true
+    property double geoStationarySinceMs: 0
+    property var geoLastTrackCoordinate: null
+
+    // AI movement status shown on the GEO map.
+    property string geoMovementIcon: "📍"
+    property bool geoMovementWasMoving: false
+    property var geoMovementTransitions: []
 
     readonly property bool geoTrackingAllowed:
         ReflectorClient.portalCapabilities
@@ -24,8 +36,116 @@ Window {
                "APP_GEO_TRACKING") >= 0
 
     onGeoTrackingAllowedChanged: {
-        if (!window.geoTrackingAllowed)
+        if (!window.geoTrackingAllowed) {
             window.geoTrackingEnabled = false
+            TrackStore.stopSession()
+        }
+    }
+
+    function updateGeoMovementIcon(speedKmh, stationary) {
+        const nowMs = Date.now()
+        const moving = !stationary
+
+        let transitions =
+            window.geoMovementTransitions || []
+
+        // Obdržimo samo spremembe zadnjih 5 minut.
+        transitions = transitions.filter(function(t) {
+            return nowMs - Number(t) <= 5 * 60 * 1000
+        })
+
+        if (moving !== window.geoMovementWasMoving) {
+            transitions.push(nowMs)
+            window.geoMovementWasMoving = moving
+        }
+
+        window.geoMovementTransitions = transitions
+
+        // GO -> STOP -> GO oziroma več hitrih sprememb.
+        if (transitions.length >= 3) {
+            window.geoMovementIcon = "🐎"
+            return
+        }
+
+        if (stationary) {
+            window.geoMovementIcon = "📍"
+            return
+        }
+
+        if (speedKmh < 10) {
+            window.geoMovementIcon = "🚶"
+            return
+        }
+
+        window.geoMovementIcon = "🚗"
+    }
+
+    function geoDistanceMeters(lat1, lon1, lat2, lon2) {
+        const earthRadius = 6371000
+        const toRad = Math.PI / 180
+
+        const dLat = (lat2 - lat1) * toRad
+        const dLon = (lon2 - lon1) * toRad
+
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2)
+            + Math.cos(lat1 * toRad)
+            * Math.cos(lat2 * toRad)
+            * Math.sin(dLon / 2)
+            * Math.sin(dLon / 2)
+
+        return earthRadius
+            * 2
+            * Math.atan2(
+                Math.sqrt(a),
+                Math.sqrt(1 - a))
+    }
+
+    function geoSmartStationaryIntervalMs(stationaryMs) {
+        // Kratek postanek.
+        if (stationaryMs < 5 * 60 * 1000)
+            return 2 * 60 * 1000
+
+        // Daljši postanek.
+        if (stationaryMs < 30 * 60 * 1000)
+            return 5 * 60 * 1000
+
+        // Ura ali dve na istem mestu.
+        if (stationaryMs < 2 * 60 * 60 * 1000)
+            return 15 * 60 * 1000
+
+        // Dolgo mirovanje / ponoči / telefon na omarici.
+        return 60 * 60 * 1000
+    }
+
+    function geoTrackRecordIntervalMs(speedKmh, stationaryMs) {
+        const mode =
+            String(saved.geoTrackingMode || "smart")
+
+        if (mode === "10")
+            return 10000
+
+        if (mode === "15")
+            return 15000
+
+        if (mode === "30")
+            return 30000
+
+        if (mode === "60")
+            return 60000
+
+        // SMART
+        if (speedKmh < 1)
+            return window.geoSmartStationaryIntervalMs(
+                stationaryMs)
+
+        if (speedKmh < 10)
+            return 30000
+
+        if (speedKmh < 60)
+            return 15000
+
+        return 10000
     }
 
     function geoTrackingIntervalMs() {
@@ -58,6 +178,40 @@ Window {
         return 10000
     }
 
+    Timer {
+        id: geoTrackSyncTimer
+        interval: 5000
+        repeat: true
+        running: true
+
+        onTriggered: {
+            if (window.geoTrackSyncBusy
+                    || TrackStore.pendingPointCount <= 0)
+                return
+
+            const points = TrackStore.pendingPoints(1)
+
+            if (!points || points.length === 0)
+                return
+
+            window.geoTrackSyncBusy = true
+            ReflectorClient.uploadPortalTrackPoint(points[0])
+        }
+    }
+
+    Connections {
+        target: ReflectorClient
+
+        function onPortalTrackPointUploadFinished(
+                pointId, success, error) {
+
+            if (success)
+                TrackStore.markPointSynced(pointId)
+
+            window.geoTrackSyncBusy = false
+        }
+    }
+
     PositionSource {
         id: geoPositionSource
         active: ReflectorClient.portalGeoShareEnabled
@@ -72,10 +226,146 @@ Window {
             if (!position.coordinate.isValid)
                 return
 
+            const lat = position.coordinate.latitude
+            const lon = position.coordinate.longitude
+
+            const accuracyValue =
+                Number(position.horizontalAccuracy)
+
+            const speedValue =
+                Number(position.speed)
+
+            const headingValue =
+                Number(position.direction)
+
+            const accuracyMeters =
+                Number.isFinite(accuracyValue)
+                && accuracyValue >= 0
+                ? accuracyValue
+                : 0
+
+            const speedKmh =
+                Number.isFinite(speedValue)
+                && speedValue >= 0
+                ? speedValue * 3.6
+                : 0
+
+            const headingDeg =
+                Number.isFinite(headingValue)
+                && headingValue >= 0
+                ? headingValue
+                : 0
+
+            // LOCAL-FIRST:
+            // tracking point is committed to SQLite before
+            // any Internet/SVXportal update is attempted.
+            if (window.geoTrackingEnabled
+                    && window.geoTrackingAllowed) {
+
+                if (!TrackStore.sessionActive) {
+                    const sessionId =
+                        TrackStore.startSession(
+                            saved.geoTrackingMode)
+
+                    if (!sessionId)
+                        window.geoTrackingEnabled = false
+                }
+
+                if (TrackStore.sessionActive) {
+                    const nowMs = Date.now()
+
+                    let distanceMeters = 0
+
+                    if (window.geoLastTrackCoordinate) {
+                        distanceMeters =
+                            window.geoDistanceMeters(
+                                window.geoLastTrackCoordinate.lat,
+                                window.geoLastTrackCoordinate.lon,
+                                lat,
+                                lon)
+                    }
+
+                    // GPS na mestu lahko "plava".
+                    // Prag povečamo glede na trenutno GPS accuracy.
+                    const movementThreshold =
+                        Math.max(
+                            30,
+                            accuracyMeters > 0
+                                ? accuracyMeters * 2
+                                : 30)
+
+                    const realMovement =
+                        speedKmh >= 1
+                        || (window.geoLastTrackCoordinate
+                            && distanceMeters
+                               >= movementThreshold)
+
+                    const stationary = !realMovement
+
+                    if (stationary) {
+                        if (window.geoStationarySinceMs <= 0)
+                            window.geoStationarySinceMs = nowMs
+                    } else {
+                        window.geoStationarySinceMs = 0
+                    }
+
+                    const stationaryMs =
+                        stationary
+                        ? nowMs
+                          - window.geoStationarySinceMs
+                        : 0
+
+                    const movementStarted =
+                        window.geoLastPositionStationary
+                        && !stationary
+
+                    const recordInterval =
+                        window.geoTrackRecordIntervalMs(
+                            speedKmh,
+                            stationaryMs)
+
+                    const shouldRecord =
+                        window.geoLastTrackPointMs <= 0
+                        || movementStarted
+                        || nowMs
+                           - window.geoLastTrackPointMs
+                           >= recordInterval
+
+                    if (shouldRecord) {
+                        const stored =
+                            TrackStore.addPoint(
+                                lat,
+                                lon,
+                                accuracyMeters,
+                                speedKmh,
+                                headingDeg,
+                                saved.geoTrackingMode)
+
+                        if (stored) {
+                            window.geoLastTrackPointMs = nowMs
+
+                            window.geoLastTrackCoordinate = {
+                                lat: lat,
+                                lon: lon
+                            }
+                        }
+                    }
+
+                    window.updateGeoMovementIcon(
+                        speedKmh,
+                        stationary)
+
+                    window.geoLastPositionStationary =
+                        stationary
+                }
+            }
+
+            // Existing GEO position update.
+            // Track history itself remains safely stored locally.
             ReflectorClient.updatePortalGeoLocation(
-                position.coordinate.latitude,
-                position.coordinate.longitude,
-                position.horizontalAccuracy)
+                lat,
+                lon,
+                accuracyMeters)
         }
     }
 
@@ -952,6 +1242,7 @@ Window {
             reflectorClient: ReflectorClient
             trackingEnabled: window.geoTrackingEnabled
             trackingMode: saved.geoTrackingMode
+            movementIcon: window.geoMovementIcon
 
             onTrackingModeRequested: mode => {
                 saved.geoTrackingMode = mode
@@ -960,10 +1251,33 @@ Window {
             onTrackingRequested: enabled => {
                 if (!window.geoTrackingAllowed) {
                     window.geoTrackingEnabled = false
+                    TrackStore.stopSession()
                     return
                 }
 
-                window.geoTrackingEnabled = enabled
+                if (enabled) {
+                    const sessionId =
+                        TrackStore.startSession(
+                            saved.geoTrackingMode)
+
+                    if (!sessionId) {
+                        window.geoTrackingEnabled = false
+                        return
+                    }
+
+                    window.geoLastTrackPointMs = 0
+                    window.geoLastPositionStationary = true
+                    window.geoStationarySinceMs = 0
+                    window.geoLastTrackCoordinate = null
+                    window.geoTrackingEnabled = true
+                } else {
+                    window.geoTrackingEnabled = false
+                    window.geoLastTrackPointMs = 0
+                    window.geoLastPositionStationary = true
+                    window.geoStationarySinceMs = 0
+                    window.geoLastTrackCoordinate = null
+                    TrackStore.stopSession()
+                }
             }
 
             onBackRequested: stackView.pop()
