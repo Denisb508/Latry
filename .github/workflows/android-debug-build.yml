@@ -188,8 +188,8 @@ jobs:
         path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 90
 
-    - name: Create Release for main/develop branches
-      if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'develop')
+    - name: Create GitHub Release
+      if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'develop' || github.ref_name == 'feature/talker-pip-overlay')
       uses: softprops/action-gh-release@v2
       with:
         files: ${{ steps.find_apk.outputs.apk_path }}
@@ -215,7 +215,7 @@ jobs:
         echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "- **APK:** ${{ steps.find_apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
-        if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref_name }}" == "main" || "${{ github.ref_name }}" == "develop") ]]; then
+        if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref_name }}" == "main" || "${{ github.ref_name }}" == "develop" || "${{ github.ref_name }}" == "feature/talker-pip-overlay") ]]; then
           echo "- **Release:** Created as prerelease" >> $GITHUB_STEP_SUMMARY
         else
           echo "- **Download:** Available in Actions artifacts" >> $GITHUB_STEP_SUMMARY
