@@ -90,6 +90,73 @@ Planned user-selectable tracking modes:
 
 Tracking availability is intended to be controlled by SVXportal permissions. Background tracking and route history are planned as separate capabilities.
 
+### 📡 Radijski prenos koordinat / RF Packet Gateway
+
+A planned extension of Latry by OB508 is an **offline RF coordinate and packet gateway**. The goal is to allow two Latry devices to exchange coordinates and short status packets through conventional radio equipment even when there is **no Internet connection**.
+
+The intended concept is:
+
+```text
+Latry phone
+    │
+    │ Wi-Fi connection to a local access point
+    │ Internet connection is not required
+    ▼
+RF Gateway / Hotspot
+Raspberry Pi Zero 2 W
+    │
+    │ AIOC / USB audio / PTT interface
+    ▼
+Radio transceiver
+    │
+    │ RF data transmission
+    │ packet / AFSK / PSK / other suitable modem mode
+    ▼
+Radio transceiver
+    │
+    ▼
+RF Gateway / Hotspot
+Raspberry Pi + AIOC
+    │
+    │ local Wi-Fi
+    ▼
+Latry phone
+```
+
+In this mode the radio stations act only as the **RF transport layer**. Latry prepares the coordinate/status data, the local gateway converts the packet into a radio-compatible modem signal, and the receiving gateway converts it back for Latry.
+
+Planned capabilities include:
+
+- 📍 **coordinate transfer without Internet**;
+- 🚗 **offline RF tracking** between mobile Latry users;
+- 📦 short packet/status messages;
+- 🧭 callsign, timestamp, position and optional movement data;
+- 🔄 automatic delivery of received coordinates directly to the Latry GEO map;
+- 📶 local Wi-Fi AP mode so the phone only needs connectivity to the RF gateway;
+- 🌐 optional hybrid mode where the same gateway can use RF locally and SVXportal/Internet when connectivity is available;
+- 🔁 support for simplex links as well as gateway/repeater-style deployments where authorized.
+
+The packet format and RF modem are intentionally not fixed yet. Candidate modes include compact packet/AFSK-style signalling or a suitable PSK/data mode, with the final choice based on reliability, occupied bandwidth, radio compatibility and real-world testing.
+
+#### 🔧 Planned / available test hardware
+
+Hardware already available or considered for RF gateway testing includes:
+
+- **Raspberry Pi Zero 2 W + AIOC** as a dedicated RF gateway;
+- **SDR receiver** for signal analysis and protocol testing;
+- Retevis RT24;
+- Quansheng K6;
+- Motorola T82 Extreme;
+- Baofeng UV-5R;
+- Retevis RT3;
+- Anytone 878;
+- WPSD DMR/PMR hotspot environment, including the existing DMR path around TG `8000293`;
+- other analog or digital transceivers where a suitable audio/data interface is available.
+
+These radios are listed as **candidate/test hardware**, not as a statement that every model is already supported by the packet gateway.
+
+The RF side is intended for operation only on frequencies and services where the operator is authorized to transmit, including the project's licensed/allocated radio resources and future authorized simplex channels, subject to applicable radio regulations.
+
 ### 🛡️ Moderator roles
 
 A granular moderation model is also being designed so operational moderators do not require full administrator access.
