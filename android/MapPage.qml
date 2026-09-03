@@ -86,6 +86,16 @@ Page {
     Plugin {
         id: osmPlugin
         name: "osm"
+
+        PluginParameter {
+            name: "osm.useragent"
+            value: "Latry-by-OB508/0.0.19"
+        }
+
+        PluginParameter {
+            name: "osm.mapping.providersrepository.disabled"
+            value: true
+        }
     }
 
     ColumnLayout {

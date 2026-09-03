@@ -43,7 +43,6 @@ Page {
     property string frnStatusMessage: ""
     property string frnUpdated: ""
     property int frnServerCount: 0
-    property bool gatewaysExpanded: false
     property var activeTalker: ({})
     property var talkerHistory: []
     property var selectedTalkerDetails: ({})
@@ -182,6 +181,33 @@ Page {
         }
 
         return ({})
+    }
+
+    function recentGatewayRooms(limit) {
+        const rooms = (page.frnRooms || []).slice()
+
+        rooms.sort(function(a, b) {
+            const aActive =
+                page.activeTalker
+                && String(page.activeTalker.sourceCode || "").toUpperCase()
+                   === String(a.code || "").toUpperCase()
+
+            const bActive =
+                page.activeTalker
+                && String(page.activeTalker.sourceCode || "").toUpperCase()
+                   === String(b.code || "").toUpperCase()
+
+            if (aActive !== bActive)
+                return aActive ? -1 : 1
+
+            const aLast = page.lastTalkerForSourceCode(a.code)
+            const bLast = page.lastTalkerForSourceCode(b.code)
+
+            return Number(bLast.endedAt || 0)
+                   - Number(aLast.endedAt || 0)
+        })
+
+        return rooms.slice(0, Math.max(0, Number(limit || 2)))
     }
 
     function lastTalkerOpacity(item) {
@@ -745,6 +771,12 @@ Page {
             return
         }
 
+        if (page.activeTalker
+                && page.activeTalker.sourceCode
+                && page.portalSourceDataMode(
+                       page.activeTalker.sourceCode) === "activity")
+            return
+
         // FRN bridge callsigna ne kažemo kot govorca.
         // Pravega FRN uporabnika dobimo iz FRN proxy-ja.
         if (page.isHiddenGatewayCallsign(callsign))
@@ -976,8 +1008,13 @@ Page {
             const source = sources[i]
             const code = String(source.code || "").trim().toUpperCase()
             const type = String(source.type || "").trim().toLowerCase()
+            const dataMode =
+                String(source.dataMode || "presence").trim().toLowerCase()
 
-            if (!code || type === "svxreflector")
+            if (!code
+                    || type === "svxreflector"
+                    || type === "latry_geo"
+                    || dataMode === "geo")
                 continue
 
             const state = page.portalSourceStates[code]
@@ -1368,6 +1405,149 @@ Page {
                 wrapMode: Text.WordWrap
                 color: "#64748b"
                 font.pixelSize: 10
+            }
+        }
+    }
+
+    Popup {
+        id: gatewaysPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 28, 390)
+        height: Math.min(page.height - 80, 520)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 12
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: "#cbd5e1"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("PREHODI")
+                        font.pixelSize: 15
+                        font.bold: true
+                        color: "#0f172a"
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("%1 prehodov • po zadnji aktivnosti")
+                              .arg(page.frnRooms.length)
+                        font.pixelSize: 10
+                        color: "#64748b"
+                    }
+                }
+
+                Button {
+                    text: "✕"
+                    flat: true
+                    onClicked: gatewaysPopup.close()
+                }
+            }
+
+            ListView {
+                id: gatewaysPopupList
+
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                model: page.recentGatewayRooms(page.frnRooms.length)
+                spacing: 7
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    required property var modelData
+
+                    width: gatewaysPopupList.width
+                    height: 64
+                    radius: 10
+
+                    readonly property bool talking:
+                        page.activeTalker
+                        && String(page.activeTalker.sourceCode || "")
+                               === String(modelData.code || "")
+
+                    readonly property var shownTalker:
+                        talking
+                        ? page.activeTalker
+                        : page.lastTalkerForSourceCode(modelData.code)
+
+                    color: talking
+                           ? "#fee2e2"
+                           : (modelData.online ? "#ecfdf5" : "#f8fafc")
+
+                    border.color: talking
+                                  ? "#ef4444"
+                                  : (modelData.online ? "#86c98a" : "#cbd5e1")
+
+                    border.width: talking ? 2 : 1
+
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 3
+
+                        Label {
+                            width: parent.width
+                            text: qsTr("%1 (%2)")
+                                  .arg(modelData.name)
+                                  .arg(modelData.count)
+                            font.pixelSize: 11
+                            font.bold: true
+                            color: "#334155"
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: parent.parent.shownTalker.callsign
+                                  ? (parent.parent.talking ? "● " : "◷ ")
+                                    + String(
+                                        parent.parent.shownTalker.display
+                                        || parent.parent.shownTalker.callsign)
+                                  : qsTr("Ni nedavne aktivnosti")
+                            font.pixelSize: 10
+                            font.bold: parent.parent.talking
+                            color: parent.parent.talking
+                                   ? "#b91c1c"
+                                   : "#216e2d"
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+
+                        onClicked: {
+                            gatewaysPopup.close()
+                            page.openActivityUsers(
+                                modelData.name,
+                                modelData.code,
+                                modelData.name,
+                                Number(modelData.talkgroup || 0))
+                        }
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                }
             }
         }
     }
@@ -1971,7 +2151,7 @@ Page {
                             Label {
                                 Layout.fillWidth: true
                                 text: qsTr("Aktivnosti na prehodih")
-                                font.pixelSize: page.compactMode ? 12 : 13
+                                font.pixelSize: page.compactMode ? 11 : 12
                                 font.bold: true
                                 color: "#0f172a"
                             }
@@ -2197,9 +2377,8 @@ Page {
                                     visible: page.showFrnUsers
                                     Layout.fillWidth: true
 
-                                    text: qsTr("PREHODI (%1) %2")
+                                    text: qsTr("PREHODI (%1) ⛶")
                                           .arg(page.frnServerCount)
-                                          .arg(page.gatewaysExpanded ? "▴" : "▾")
 
                                     font.pixelSize: 10
                                     font.bold: true
@@ -2208,8 +2387,7 @@ Page {
                                     MouseArea {
                                         anchors.fill: parent
                                         onDoubleClicked:
-                                            page.gatewaysExpanded =
-                                                !page.gatewaysExpanded
+                                            gatewaysPopup.open()
                                     }
                                 }
 
@@ -2219,14 +2397,11 @@ Page {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight:
                                         page.frnRooms.length > 0
-                                        ? Math.min(
-                                              page.frnRooms.length,
-                                              page.gatewaysExpanded ? 5 : 2
-                                          ) * 64 - 6
+                                        ? Math.min(page.frnRooms.length, 2)
+                                          * 64 - 6
                                         : 0
 
-                                    Layout.maximumHeight:
-                                        page.gatewaysExpanded ? 314 : 122
+                                    Layout.maximumHeight: 122
 
                                     clip: true
                                     contentWidth: availableWidth
@@ -2245,7 +2420,7 @@ Page {
 
                                         Repeater {
                                     model: page.showFrnUsers
-                                           ? page.frnRooms
+                                           ? page.recentGatewayRooms(2)
                                            : []
 
                                     delegate: Rectangle {
