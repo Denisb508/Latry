@@ -122,6 +122,18 @@ Page {
         }
     }
 
+    function refreshReflectorDirectory() {
+        const source = page.portalSourceByCode("SVX_REFLECTOR")
+        const endpoint = String(source.endpoint || "").trim()
+
+        if (!endpoint)
+            return
+
+        page.reflectorClient.refreshPortalSource(
+                    "SVX_REFLECTOR",
+                    endpoint)
+    }
+
     function cachePortalSourceResult(code, success, data, error) {
         const key = String(code || "").trim().toUpperCase()
 
@@ -140,6 +152,9 @@ Page {
         page.portalSourceStates = next
         page.rebuildPortalActivityModels()
         page.syncActivePortalTalker()
+
+        if (key === "SVX_REFLECTOR")
+            page.syncSvxTalker()
     }
 
     function hasPortalSource(code) {
@@ -471,6 +486,39 @@ Page {
         return result
     }
 
+    function reflectorUserDisplay(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
+
+        if (!cs)
+            return ""
+
+        const state = page.portalSourceStates["SVX_REFLECTOR"]
+        const data = state && state.success && state.data
+                   ? state.data
+                   : ({})
+        const users = data.users || []
+
+        for (let i = 0; i < users.length; ++i) {
+            const user = users[i]
+
+            if (!user || typeof user !== "object")
+                continue
+
+            const userCallsign =
+                String(user.callsign || "").trim().toUpperCase()
+
+            if (userCallsign !== cs)
+                continue
+
+            const name =
+                String(user.display_name || user.name || "").trim()
+
+            return name ? cs + " — " + name : cs
+        }
+
+        return cs
+    }
+
     function activityUsers() {
         if (page.isActivitySource())
             return page.dmrActivityItems()
@@ -486,7 +534,7 @@ Page {
                     room: "SvxReflector",
                     talkgroup: page.activityUsersTalkgroup,
                     callsign: callsign,
-                    display: callsign,
+                    display: page.reflectorUserDisplay(callsign),
                     name: "",
                     location: "",
                     active: page.isActivityUserTalking(
@@ -608,7 +656,7 @@ Page {
 
             result.push({
                 callsign: callsign,
-                display: callsign,
+                display: page.reflectorUserDisplay(callsign),
                 source: "SvxReflector",
                 room: "SvxReflector"
             })
@@ -783,8 +831,17 @@ Page {
         if (page.isHiddenGatewayCallsign(callsign))
             return
 
-        const name =
+        const protocolName =
                 String(page.reflectorClient.currentTalkerName || "").trim()
+
+        const portalDisplay =
+                page.reflectorUserDisplay(callsign)
+
+        let display = portalDisplay
+
+        if (protocolName.length > 0
+                && portalDisplay === callsign)
+            display = callsign + " — " + protocolName
 
         page.setActiveTalker({
             active: true,
@@ -792,11 +849,9 @@ Page {
             room: "SvxReflector",
             talkgroup: page.currentTalkgroup,
             callsign: callsign,
-            name: name,
+            name: protocolName,
             location: "",
-            display: name.length > 0
-                     ? callsign + ", " + name
-                     : callsign
+            display: display
         })
     }
 
@@ -1183,6 +1238,18 @@ Page {
         running: page.showFrnUsers
         triggeredOnStart: true
         onTriggered: page.refreshFrnUsers()
+    }
+
+    // Imenik SvxReflector uporabnikov se spreminja redko.
+    // Ne nalagamo ga v hitrem 500 ms activity loopu.
+    Timer {
+        interval: 30000
+        repeat: true
+        running: page.showReflectorUsers
+                 && !page.reflectorClient.isDisconnected
+                 && !page.reflectorClient.portalAccessLoading
+        triggeredOnStart: true
+        onTriggered: page.refreshReflectorDirectory()
     }
 
     Connections {
