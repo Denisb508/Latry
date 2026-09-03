@@ -21,6 +21,7 @@ Page {
     property string geoSourceCode: ""
     property string geoEndpoint: ""
     property var stations: []
+    property bool initialMapFitDone: false
     property bool loading: false
     property string statusText: ""
 
@@ -64,9 +65,27 @@ Page {
     }
 
     function applyStations(data) {
-        page.stations = data && data.stations
-                ? data.stations
-                : []
+        const rawStations =
+            data && data.stations
+            ? data.stations
+            : []
+
+        page.stations = rawStations.filter(function(station) {
+            if (!station)
+                return false
+
+            if (station.lat === null || station.lat === undefined
+                    || station.lon === null || station.lon === undefined)
+                return false
+
+            const lat = Number(station.lat)
+            const lon = Number(station.lon)
+
+            return Number.isFinite(lat)
+                    && Number.isFinite(lon)
+                    && lat >= -90 && lat <= 90
+                    && lon >= -180 && lon <= 180
+        })
 
         page.statusText =
             page.stations.length === 0
@@ -74,8 +93,10 @@ Page {
             : qsTr("%1 lokacij").arg(page.stations.length)
 
         Qt.callLater(function() {
-            if (page.stations.length > 0)
+            if (!page.initialMapFitDone && page.stations.length > 0) {
                 map.fitViewportToMapItems()
+                page.initialMapFitDone = true
+            }
         })
     }
 
