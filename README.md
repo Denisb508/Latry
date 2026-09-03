@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 [![Public](https://img.shields.io/badge/GitHub-Public-success?logo=github)](https://github.com/Denisb508/Latry)
 
-**Latry by OB508** is an extended fork of the original Latry mobile SvxLink client, focused on tighter integration with **SvxReflector, SVXportal, FRN, DMR and radio gateway infrastructure**.
+**Latry by OB508** is an extended fork of the original Latry mobile SvxLink client, focused on tighter integration with **SvxReflector, SVXportal, FRN, DMR, VoIP and radio gateway infrastructure**.
 
 The project keeps the lightweight PTT/VoIP experience of Latry while adding live activity information, gateway awareness, GEO features and centrally controlled functionality for managed radio networks.
 
@@ -49,7 +49,28 @@ Examples include:
 - FRN gateways
 - DMR gateways
 - GEO sources
+- VoIP / FreePBX integration status
 - future radio/IP gateway sources
+
+### ☎️ VoIP / FreePBX / Zoiper / GSM integration
+
+The wider **Latry by OB508 + SVXportal/SVXlink** environment is also integrated with **FreePBX** and SIP/VoIP services. This makes it possible to connect radio-network functions with conventional VoIP clients and telephony gateways.
+
+Supported or implemented integration scenarios include:
+
+- 📞 **local internal SIP calls** between FreePBX extensions;
+- 📱 use of **Zoiper** and other SIP softphones as normal FreePBX clients;
+- 📡 **GSM gateway/interface integration** for bridging GSM telephony into the FreePBX environment;
+- 👥 **Conference mode** using FreePBX/ConfBridge;
+- 🎙️ connection of radio/SVXlink paths into a conference where required;
+- 🔇 independent RX/TX control for selected conference/radio legs;
+- 🔢 DTMF-based control of conference functions;
+- 🔄 possibility to route selected SVXlink talkgroups into dedicated VoIP conferences;
+- 🏠 local/internal calling that can continue independently of the public telephone network when the local VoIP infrastructure is available.
+
+This allows the same infrastructure to combine **Latry, SvxReflector/SVXlink, FreePBX, Zoiper, GSM gateways and conference rooms** while keeping each transport layer independently manageable.
+
+Latry itself remains focused on the SvxReflector/mobile-radio client role; SIP call handling and conference control are provided by the integrated FreePBX/SVXportal infrastructure.
 
 ### 🗺️ Latry GEO
 
@@ -103,7 +124,7 @@ Latry phone
     │ Internet connection is not required
     ▼
 RF Gateway / Hotspot
-Raspberry Pi Zero 2 W
+Raspberry Pi-class device
     │
     │ AIOC / USB audio / PTT interface
     ▼
@@ -116,7 +137,7 @@ Radio transceiver
     │
     ▼
 RF Gateway / Hotspot
-Raspberry Pi + AIOC
+Raspberry Pi-class device + AIOC
     │
     │ local Wi-Fi
     ▼
@@ -138,22 +159,9 @@ Planned capabilities include:
 
 The packet format and RF modem are intentionally not fixed yet. Candidate modes include compact packet/AFSK-style signalling or a suitable PSK/data mode, with the final choice based on reliability, occupied bandwidth, radio compatibility and real-world testing.
 
-#### 🔧 Planned / available test hardware
+#### 🔧 RF gateway test platform
 
-Hardware already available or considered for RF gateway testing includes:
-
-- **Raspberry Pi Zero 2 W + AIOC** as a dedicated RF gateway;
-- **SDR receiver** for signal analysis and protocol testing;
-- Retevis RT24;
-- Quansheng K6;
-- Motorola T82 Extreme;
-- Baofeng UV-5R;
-- Retevis RT3;
-- Anytone 878;
-- WPSD DMR/PMR hotspot environment, including the existing DMR path around TG `8000293`;
-- other analog or digital transceivers where a suitable audio/data interface is available.
-
-These radios are listed as **candidate/test hardware**, not as a statement that every model is already supported by the packet gateway.
+The planned test platform is based on a **Raspberry Pi-class gateway**, **AIOC or equivalent audio/PTT interface**, optional **SDR monitoring**, and a compatible analog or digital radio transceiver. Specific radio models are intentionally not tied to the design.
 
 The RF side is intended for operation only on frequencies and services where the operator is authorized to transmit, including the project's licensed/allocated radio resources and future authorized simplex channels, subject to applicable radio regulations.
 
