@@ -31,9 +31,16 @@ Page {
     property string statusText: ""
     property var localTrackPath: []
     property var remoteTracks: []
-    property bool showRemoteTracks: false
+    property bool showRemoteTracks: true
     property int remoteTrackTailMinutes: 1440
     property string remoteTrackCallsign: ""
+
+    property string historyCallsign: ""
+    property var historyDates: []
+    property string historyDate: ""
+    property var historyTrack: []
+    property bool historyLoading: false
+    property string historyError: ""
 
     // Movement Watch - zadnje znano stanje spremljanih uporabnikov
     property var movementWatchStates: ({})
@@ -547,6 +554,309 @@ Page {
             page.geoEndpoint)
     }
 
+    function geoEndpointWithParam(name, value) {
+        const endpoint = String(page.geoEndpoint || "")
+
+        if (!endpoint)
+            return ""
+
+        const separator =
+            endpoint.indexOf("?") >= 0 ? "&" : "?"
+
+        return endpoint
+            + separator
+            + encodeURIComponent(name)
+            + "="
+            + encodeURIComponent(String(value || ""))
+    }
+
+    function loadHistoryDates(callsign) {
+        const cs =
+            String(callsign || "").trim().toUpperCase()
+
+        if (!cs || !page.geoEndpoint)
+            return
+
+        page.historyCallsign = cs
+        page.historyDates = []
+        page.historyDate = ""
+        page.historyTrack = []
+        page.historyError = ""
+        page.historyLoading = true
+
+        page.reflectorClient.refreshPortalSource(
+            "LATRY_GEO_HISTORY_DATES",
+            page.geoEndpointWithParam(
+                "history_dates",
+                cs))
+    }
+
+    function loadHistory(callsign, date) {
+        const cs =
+            String(callsign || "").trim().toUpperCase()
+
+        const day =
+            String(date || "").trim()
+
+        if (!cs || !day || !page.geoEndpoint)
+            return
+
+        let endpoint =
+            page.geoEndpointWithParam(
+                "history_callsign",
+                cs)
+
+        endpoint +=
+            "&history_date="
+            + encodeURIComponent(day)
+
+        page.historyCallsign = cs
+        page.historyDate = day
+        page.historyTrack = []
+        page.historyError = ""
+        page.historyLoading = true
+
+        page.reflectorClient.refreshPortalSource(
+            "LATRY_GEO_HISTORY",
+            endpoint)
+    }
+
+    function applyHistoryDates(data) {
+        page.historyDates =
+            data && data.dates
+            ? data.dates
+            : []
+
+        page.historyLoading = false
+
+        if (page.historyDates.length === 0) {
+            page.historyDate = ""
+            page.historyError =
+                qsTr("Za uporabnika ni shranjene zgodovine.")
+        } else {
+            page.historyDate =
+                String(page.historyDates[0].date || "")
+            page.historyError = ""
+
+            Qt.callLater(function() {
+                if (historyDateBox.count > 0)
+                    historyDateBox.currentIndex = 0
+            })
+        }
+    }
+
+    function applyHistory(data) {
+        const history =
+            data && data.history
+            ? data.history
+            : null
+
+        const rawPoints =
+            history && history.points
+            ? history.points
+            : []
+
+        const path = []
+
+        for (let i = 0; i < rawPoints.length; ++i) {
+            const point = rawPoints[i]
+
+            if (!point)
+                continue
+
+            const lat = Number(point.lat)
+            const lon = Number(point.lon)
+
+            if (!Number.isFinite(lat)
+                    || !Number.isFinite(lon)
+                    || lat < -90 || lat > 90
+                    || lon < -180 || lon > 180)
+                continue
+
+            path.push({
+                lat: lat,
+                lon: lon,
+                recordedAt:
+                    String(point.recorded_at || ""),
+                speedKmh:
+                    point.speed_kmh === null
+                    || point.speed_kmh === undefined
+                    ? null
+                    : Number(point.speed_kmh),
+                accuracyM:
+                    point.accuracy_m === null
+                    || point.accuracy_m === undefined
+                    ? null
+                    : Number(point.accuracy_m)
+            })
+        }
+
+        page.historyTrack = path
+        page.historyLoading = false
+
+        if (path.length === 0)
+            page.historyError =
+                qsTr("Za izbrani datum ni točk.")
+    }
+
+    function historyUserModel() {
+        const result = []
+
+        for (let i = 0; i < page.stations.length; ++i) {
+            const station = page.stations[i]
+            const callsign =
+                String(station.callsign || "").trim().toUpperCase()
+
+            if (!callsign)
+                continue
+
+            result.push({
+                text: callsign,
+                value: callsign
+            })
+        }
+
+        return result
+    }
+
+    function historyDateLabel(date) {
+        const value = String(date || "")
+        const parts = value.split("-")
+
+        if (parts.length !== 3)
+            return value
+
+        return parts[2] + "." + parts[1] + "." + parts[0]
+    }
+
+    function historyDateModel() {
+        const result = []
+
+        for (let i = 0; i < page.historyDates.length; ++i) {
+            const item = page.historyDates[i]
+            const date = String(item.date || "")
+
+            if (!date)
+                continue
+
+            result.push({
+                text:
+                    page.historyDateLabel(date)
+                    + " • "
+                    + Number(item.count || 0)
+                    + " "
+                    + qsTr("točk"),
+                value: date
+            })
+        }
+
+        return result
+    }
+
+    function trackTimestampMs(value) {
+        let text = String(value || "").trim()
+
+        if (text.length >= 19 && text.charAt(10) === " ")
+            text = text.substring(0, 10) + "T" + text.substring(11)
+
+        return Date.parse(text)
+    }
+
+    function shouldBreakTrack(previousPoint, currentPoint) {
+        if (!previousPoint || !currentPoint)
+            return false
+
+        const previousTime =
+            page.trackTimestampMs(previousPoint.recordedAt)
+
+        const currentTime =
+            page.trackTimestampMs(currentPoint.recordedAt)
+
+        if (!Number.isFinite(previousTime)
+                || !Number.isFinite(currentTime))
+            return false
+
+        const gapSeconds =
+            (currentTime - previousTime) / 1000
+
+        const previousCoordinate =
+            QtPositioning.coordinate(
+                Number(previousPoint.lat),
+                Number(previousPoint.lon)
+            )
+
+        const currentCoordinate =
+            QtPositioning.coordinate(
+                Number(currentPoint.lat),
+                Number(currentPoint.lon)
+            )
+
+        const distanceMeters =
+            previousCoordinate.distanceTo(currentCoordinate)
+
+        return gapSeconds > 600
+                && distanceMeters > 500
+    }
+
+    function historySegmentModel() {
+        const result = []
+
+        let path = []
+        let previousPoint = null
+
+        for (let i = 0; i < page.historyTrack.length; ++i) {
+            const point = page.historyTrack[i]
+
+            if (previousPoint
+                    && page.shouldBreakTrack(previousPoint, point)) {
+
+                if (path.length >= 2)
+                    result.push({ path: path })
+
+                path = []
+            }
+
+            path.push(
+                QtPositioning.coordinate(
+                    Number(point.lat),
+                    Number(point.lon)
+                )
+            )
+
+            previousPoint = point
+        }
+
+        if (path.length >= 2)
+            result.push({ path: path })
+
+        return result
+    }
+
+    function historyStartCoordinate() {
+        if (page.historyTrack.length === 0)
+            return QtPositioning.coordinate(0, 0)
+
+        const point = page.historyTrack[0]
+
+        return QtPositioning.coordinate(
+            Number(point.lat),
+            Number(point.lon)
+        )
+    }
+
+    function historyEndCoordinate() {
+        if (page.historyTrack.length === 0)
+            return QtPositioning.coordinate(0, 0)
+
+        const point =
+            page.historyTrack[page.historyTrack.length - 1]
+
+        return QtPositioning.coordinate(
+            Number(point.lat),
+            Number(point.lon)
+        )
+    }
+
     function applyTracks(data) {
         const rawTracks =
             data && data.tracks
@@ -627,14 +937,32 @@ Page {
                         !== page.remoteTrackCallsign)
                 continue
 
-            const path = []
+            let path = []
+            let previousPoint = null
 
             for (let j = 0; j < track.points.length; ++j) {
                 const point = track.points[j]
-                const timestamp = Date.parse(point.recordedAt)
+                const timestamp =
+                    page.trackTimestampMs(point.recordedAt)
 
-                if (Number.isFinite(timestamp) && timestamp < cutoff)
+                if (Number.isFinite(timestamp)
+                        && timestamp < cutoff)
                     continue
+
+                if (previousPoint
+                        && page.shouldBreakTrack(
+                            previousPoint,
+                            point)) {
+
+                    if (path.length >= 2) {
+                        result.push({
+                            callsign: track.callsign,
+                            path: path
+                        })
+                    }
+
+                    path = []
+                }
 
                 path.push(
                     QtPositioning.coordinate(
@@ -642,15 +970,16 @@ Page {
                         Number(point.lon)
                     )
                 )
+
+                previousPoint = point
             }
 
-            if (path.length < 2)
-                continue
-
-            result.push({
-                callsign: track.callsign,
-                path: path
-            })
+            if (path.length >= 2) {
+                result.push({
+                    callsign: track.callsign,
+                    path: path
+                })
+            }
         }
 
         return result
@@ -864,13 +1193,22 @@ Page {
             CheckBox {
                 id: tracksLayerCheck
                 text: "🛣 " + qsTr("Tracks")
-                checked: page.showRemoteTracks
+                checked: true
+                enabled: false
 
                 onToggled: {
                     page.showRemoteTracks = checked
 
                     if (checked)
                         page.refreshGeo()
+                }
+            }
+
+            Button {
+                text: "📅 " + qsTr("History")
+
+                onClicked: {
+                    historyPopup.open()
                 }
             }
 
@@ -926,6 +1264,48 @@ Page {
                 onActivated: {
                     page.remoteTrackTailMinutes =
                         Number(currentValue || 1440)
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible:
+                page.historyTrack.length > 0
+                || page.historyLoading
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+
+                text:
+                    page.historyLoading
+                    ? "📅 " + qsTr("Nalagam zgodovino…")
+                    : "📅 "
+                      + page.historyCallsign
+                      + " • "
+                      + page.historyDateLabel(page.historyDate)
+                      + " • "
+                      + page.historyTrack.length
+                      + " "
+                      + qsTr("točk")
+
+                font.bold: true
+                color: page.accentColor
+                elide: Text.ElideRight
+            }
+
+            Button {
+                visible: page.historyTrack.length > 0
+                text: "✕"
+
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Zapri zgodovino")
+
+                onClicked: {
+                    page.historyTrack = []
+                    page.historyDate = ""
+                    page.historyError = ""
                 }
             }
         }
@@ -998,6 +1378,81 @@ Page {
                 target: null
                 onTranslationChanged: (delta) =>
                     map.pan(-delta.x, -delta.y)
+            }
+
+            MapItemView {
+                model: page.historySegmentModel()
+
+                delegate: MapPolyline {
+                    required property var modelData
+
+                    path: modelData.path
+                    line.width: 6
+                    line.color:
+                        page.trackLineColor(page.historyCallsign)
+
+                    z: 4
+                }
+            }
+
+            MapQuickItem {
+                visible: page.historyTrack.length > 0
+
+                coordinate:
+                    page.historyStartCoordinate()
+
+                anchorPoint.x: historyStartMarker.width / 2
+                anchorPoint.y: historyStartMarker.height / 2
+
+                z: 5
+
+                sourceItem: Rectangle {
+                    id: historyStartMarker
+
+                    width: 34
+                    height: 34
+                    radius: 17
+                    color: "#16a34a"
+                    border.color: "#ffffff"
+                    border.width: 2
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "S"
+                        color: "#ffffff"
+                        font.bold: true
+                    }
+                }
+            }
+
+            MapQuickItem {
+                visible: page.historyTrack.length > 0
+
+                coordinate:
+                    page.historyEndCoordinate()
+
+                anchorPoint.x: historyEndMarker.width / 2
+                anchorPoint.y: historyEndMarker.height / 2
+
+                z: 5
+
+                sourceItem: Rectangle {
+                    id: historyEndMarker
+
+                    width: 34
+                    height: 34
+                    radius: 17
+                    color: "#dc2626"
+                    border.color: "#ffffff"
+                    border.width: 2
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "E"
+                        color: "#ffffff"
+                        font.bold: true
+                    }
+                }
             }
 
             MapItemView {
@@ -1106,6 +1561,146 @@ Page {
             horizontalAlignment: Text.AlignHCenter
             color: "#64748b"
             font.pixelSize: 11
+        }
+    }
+
+    Popup {
+        id: historyPopup
+
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(page.width - 32, 390)
+        modal: true
+        focus: true
+        padding: 16
+
+        closePolicy:
+            Popup.CloseOnEscape
+            | Popup.CloseOnPressOutside
+
+        onOpened: {
+            page.historyError = ""
+
+            const preferred =
+                page.remoteTrackCallsign.length > 0
+                ? page.remoteTrackCallsign
+                : page.historyCallsign
+
+            if (preferred.length > 0) {
+                const index =
+                    historyUserBox.indexOfValue(preferred)
+
+                if (index >= 0)
+                    historyUserBox.currentIndex = index
+            }
+
+            if (historyUserBox.count > 0) {
+                page.loadHistoryDates(
+                    String(historyUserBox.currentValue || ""))
+            }
+        }
+
+        background: Rectangle {
+            radius: 14
+            color: "#ffffff"
+            border.color: page.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: "📅 " + qsTr("GEO History")
+                font.pixelSize: 18
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Label {
+                text: qsTr("Uporabnik")
+                font.bold: true
+            }
+
+            ComboBox {
+                id: historyUserBox
+                Layout.fillWidth: true
+
+                model: page.historyUserModel()
+                textRole: "text"
+                valueRole: "value"
+
+                onActivated: {
+                    page.loadHistoryDates(
+                        String(currentValue || ""))
+                }
+            }
+
+            Label {
+                text: qsTr("Datum")
+                font.bold: true
+            }
+
+            ComboBox {
+                id: historyDateBox
+                Layout.fillWidth: true
+
+                enabled:
+                    !page.historyLoading
+                    && page.historyDates.length > 0
+
+                model: page.historyDateModel()
+                textRole: "text"
+                valueRole: "value"
+
+                onActivated: {
+                    page.historyDate =
+                        String(currentValue || "")
+                }
+            }
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: page.historyLoading
+                visible: running
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: page.historyError.length > 0
+                text: page.historyError
+                color: "#b91c1c"
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Button {
+                    Layout.fillWidth: true
+                    text: qsTr("Prekliči")
+                    onClicked: historyPopup.close()
+                }
+
+                Button {
+                    Layout.fillWidth: true
+
+                    text: "📍 " + qsTr("Prikaži")
+
+                    enabled:
+                        !page.historyLoading
+                        && page.historyCallsign.length > 0
+                        && page.historyDate.length > 0
+
+                    onClicked: {
+                        page.loadHistory(
+                            page.historyCallsign,
+                            page.historyDate)
+
+                        historyPopup.close()
+                    }
+                }
+            }
         }
     }
 
@@ -1264,8 +1859,34 @@ Page {
         function onPortalSourceFetchFinished(
             code, success, data, error) {
 
-            if (String(code || "").trim().toUpperCase()
-                    !== page.geoSourceCode)
+            const key =
+                String(code || "").trim().toUpperCase()
+
+            if (key === "LATRY_GEO_HISTORY_DATES") {
+                if (!success) {
+                    page.historyLoading = false
+                    page.historyError =
+                        String(error || qsTr("Napaka GEO History"))
+                    return
+                }
+
+                page.applyHistoryDates(data)
+                return
+            }
+
+            if (key === "LATRY_GEO_HISTORY") {
+                if (!success) {
+                    page.historyLoading = false
+                    page.historyError =
+                        String(error || qsTr("Napaka GEO History"))
+                    return
+                }
+
+                page.applyHistory(data)
+                return
+            }
+
+            if (key !== page.geoSourceCode)
                 return
 
             page.loading = false
