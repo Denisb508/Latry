@@ -1216,10 +1216,13 @@ Page {
     }
 
     Timer {
-        interval: 1
-        repeat: false
-        running: true
-        onTriggered: page.syncReflectorUsers()
+        interval: 2000
+        repeat: true
+        running: !page.reflectorClient.isDisconnected
+        triggeredOnStart: true
+
+        onTriggered:
+            page.syncReflectorUsers()
     }
 
     Timer {
