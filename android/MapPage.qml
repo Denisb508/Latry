@@ -30,6 +30,10 @@ Page {
     property bool loading: false
     property string statusText: ""
     property var localTrackPath: []
+    property var remoteTracks: []
+    property bool showRemoteTracks: false
+    property int remoteTrackTailMinutes: 1440
+    property string remoteTrackCallsign: ""
 
     // Movement Watch - zadnje znano stanje spremljanih uporabnikov
     property var movementWatchStates: ({})
@@ -543,6 +547,156 @@ Page {
             page.geoEndpoint)
     }
 
+    function applyTracks(data) {
+        const rawTracks =
+            data && data.tracks
+            ? data.tracks
+            : []
+
+        const normalized = []
+
+        for (let i = 0; i < rawTracks.length; ++i) {
+            const track = rawTracks[i]
+
+            if (!track || !track.points)
+                continue
+
+            const callsign =
+                String(track.callsign || "")
+                    .trim()
+                    .toUpperCase()
+
+            if (!callsign)
+                continue
+
+            const points = []
+
+            for (let j = 0; j < track.points.length; ++j) {
+                const point = track.points[j]
+
+                if (!point)
+                    continue
+
+                const lat = Number(point.lat)
+                const lon = Number(point.lon)
+
+                if (!Number.isFinite(lat)
+                        || !Number.isFinite(lon)
+                        || lat < -90 || lat > 90
+                        || lon < -180 || lon > 180)
+                    continue
+
+                points.push({
+                    lat: lat,
+                    lon: lon,
+                    recordedAt:
+                        String(point.recorded_at || ""),
+                    speedKmh:
+                        point.speed_kmh === null
+                        || point.speed_kmh === undefined
+                        ? null
+                        : Number(point.speed_kmh)
+                })
+            }
+
+            if (points.length === 0)
+                continue
+
+            normalized.push({
+                callsign: callsign,
+                points: points
+            })
+        }
+
+        page.remoteTracks = normalized
+    }
+
+    function remoteTrackDisplayModel() {
+        if (!page.showRemoteTracks)
+            return []
+
+        const result = []
+        const cutoff =
+            Date.now() - page.remoteTrackTailMinutes * 60 * 1000
+
+        for (let i = 0; i < page.remoteTracks.length; ++i) {
+            const track = page.remoteTracks[i]
+
+            if (page.remoteTrackCallsign.length > 0
+                    && String(track.callsign || "").toUpperCase()
+                        !== page.remoteTrackCallsign)
+                continue
+
+            const path = []
+
+            for (let j = 0; j < track.points.length; ++j) {
+                const point = track.points[j]
+                const timestamp = Date.parse(point.recordedAt)
+
+                if (Number.isFinite(timestamp) && timestamp < cutoff)
+                    continue
+
+                path.push(
+                    QtPositioning.coordinate(
+                        Number(point.lat),
+                        Number(point.lon)
+                    )
+                )
+            }
+
+            if (path.length < 2)
+                continue
+
+            result.push({
+                callsign: track.callsign,
+                path: path
+            })
+        }
+
+        return result
+    }
+
+    function hasRemoteTrack(callsign) {
+        const wanted =
+            String(callsign || "").trim().toUpperCase()
+
+        if (!wanted)
+            return false
+
+        for (let i = 0; i < page.remoteTracks.length; ++i) {
+            const track = page.remoteTracks[i]
+
+            if (String(track.callsign || "").trim().toUpperCase()
+                    === wanted
+                    && track.points
+                    && track.points.length >= 2)
+                return true
+        }
+
+        return false
+    }
+
+    function trackLineColor(callsign) {
+        const colors = [
+            "#1565c0",
+            "#2e7d32",
+            "#c62828",
+            "#6a1b9a",
+            "#ef6c00",
+            "#00838f",
+            "#ad1457",
+            "#4527a0"
+        ]
+
+        const text = String(callsign || "")
+        let hash = 0
+
+        for (let i = 0; i < text.length; ++i)
+            hash = ((hash * 31) + text.charCodeAt(i)) >>> 0
+
+        return colors[hash % colors.length]
+    }
+
     function applyStations(data) {
         const rawStations =
             data && data.stations
@@ -702,6 +856,80 @@ Page {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            visible: page.canHistory
+            spacing: 8
+
+            CheckBox {
+                id: tracksLayerCheck
+                text: "🛣 " + qsTr("Tracks")
+                checked: page.showRemoteTracks
+
+                onToggled: {
+                    page.showRemoteTracks = checked
+
+                    if (checked)
+                        page.refreshGeo()
+                }
+            }
+
+            Label {
+                visible:
+                    page.showRemoteTracks
+                    && page.remoteTrackCallsign.length > 0
+
+                text: "🎯 " + page.remoteTrackCallsign
+                font.bold: true
+                color: page.accentColor
+            }
+
+            Button {
+                visible:
+                    page.showRemoteTracks
+                    && page.remoteTrackCallsign.length > 0
+
+                text: "🌍 " + qsTr("Show all")
+
+                onClicked: {
+                    page.remoteTrackCallsign = ""
+                }
+            }
+
+            Label {
+                text: qsTr("Tail:")
+                visible: page.showRemoteTracks
+            }
+
+            ComboBox {
+                id: tracksTailBox
+                Layout.fillWidth: true
+                visible: page.showRemoteTracks
+
+                model: [
+                    { text: "15 min", value: 15 },
+                    { text: "1 h", value: 60 },
+                    { text: "6 h", value: 360 },
+                    { text: "24 h", value: 1440 }
+                ]
+
+                textRole: "text"
+                valueRole: "value"
+
+                Component.onCompleted: {
+                    const index =
+                        indexOfValue(page.remoteTrackTailMinutes)
+
+                    currentIndex = index >= 0 ? index : 3
+                }
+
+                onActivated: {
+                    page.remoteTrackTailMinutes =
+                        Number(currentValue || 1440)
+                }
+            }
+        }
+
         Map {
             id: map
 
@@ -772,6 +1000,21 @@ Page {
                     map.pan(-delta.x, -delta.y)
             }
 
+            MapItemView {
+                model: page.remoteTrackDisplayModel()
+
+                delegate: MapPolyline {
+                    required property var modelData
+
+                    path: modelData.path
+                    line.width: 4
+                    line.color:
+                        page.trackLineColor(modelData.callsign)
+
+                    z: 1
+                }
+            }
+
             MapPolyline {
                 id: localTrackLine
 
@@ -780,6 +1023,7 @@ Page {
 
                 line.width: 5
                 line.color: page.accentColor
+                z: 2
             }
 
             MapItemView {
@@ -962,6 +1206,43 @@ Page {
                 color:
                     page.accentColor
             }
+
+
+            Button {
+                Layout.alignment: Qt.AlignHCenter
+
+                visible:
+                    page.canHistory
+                    && (
+                        page.hasRemoteTrack(detailsCallsign.text)
+                        || page.remoteTrackCallsign
+                            === String(detailsCallsign.text || "")
+                                .trim().toUpperCase()
+                    )
+
+                text:
+                    page.remoteTrackCallsign
+                        === String(detailsCallsign.text || "")
+                            .trim().toUpperCase()
+                    ? "🌍 " + qsTr("Show all tracks")
+                    : "🛣 " + qsTr("Track %1")
+                        .arg(detailsCallsign.text)
+
+                onClicked: {
+                    const callsign =
+                        String(detailsCallsign.text || "")
+                            .trim().toUpperCase()
+
+                    if (page.remoteTrackCallsign === callsign) {
+                        page.remoteTrackCallsign = ""
+                    } else {
+                        page.remoteTrackCallsign = callsign
+                        page.showRemoteTracks = true
+                    }
+
+                    detailsPopup.close()
+                }
+            }
         }
     }
 
@@ -995,6 +1276,7 @@ Page {
                 return
             }
 
+            page.applyTracks(data)
             page.applyStations(data)
         }
 
