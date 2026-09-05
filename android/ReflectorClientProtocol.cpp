@@ -162,6 +162,10 @@ void ReflectorClient::handleServerInfo(QDataStream &stream)
     setWaitingForValidatedNetwork(false);
     resetProtocolLivenessWatchdog();
 
+    // A server restart clears cached portal access state.
+    // Reload it after every successful authentication/reconnect.
+    refreshPortalAccess();
+
     qDebug() << "ReflectorClient::handleServerInfo - Authentication successful"
              << "Client ID:" << m_clientId
              << "Reserved field:" << reserved
