@@ -1216,16 +1216,6 @@ Page {
     }
 
     Timer {
-        interval: 2000
-        repeat: true
-        running: !page.reflectorClient.isDisconnected
-        triggeredOnStart: true
-
-        onTriggered:
-            page.syncReflectorUsers()
-    }
-
-    Timer {
         interval: 500
         repeat: true
         running: !page.reflectorClient.isDisconnected
