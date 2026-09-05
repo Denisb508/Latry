@@ -17,6 +17,11 @@ Window {
     color: "#f4f7fb"
 
     property bool geoTrackingEnabled: false
+
+    readonly property bool geoAdminAllowed:
+        window.geoTrackingAllowed
+        && ReflectorClient.portalGeoShareEnabled
+        && ReflectorClient.portalGeoLocationMode !== "off"
     property bool geoTrackSyncBusy: false
 
     // SMART tracking state
@@ -35,11 +40,15 @@ Window {
         && ReflectorClient.portalCapabilities.indexOf(
                "APP_GEO_TRACKING") >= 0
 
-    onGeoTrackingAllowedChanged: {
-        if (!window.geoTrackingAllowed) {
+    onGeoAdminAllowedChanged: {
+        if (!window.geoAdminAllowed) {
             window.geoTrackingEnabled = false
             TrackStore.stopSession()
+            return
         }
+
+        window.geoTrackingEnabled =
+            saved.geoTrackingUserEnabled
     }
 
     function updateGeoMovementIcon(speedKmh, stationary) {
@@ -214,8 +223,8 @@ Window {
 
     PositionSource {
         id: geoPositionSource
-        active: ReflectorClient.portalGeoShareEnabled
-                && ReflectorClient.portalGeoLocationMode !== "off"
+        active: window.geoAdminAllowed
+                && window.geoTrackingEnabled
         updateInterval:
             window.geoTrackingEnabled
             && window.geoTrackingAllowed
@@ -362,10 +371,13 @@ Window {
 
             // Existing GEO position update.
             // Track history itself remains safely stored locally.
-            ReflectorClient.updatePortalGeoLocation(
-                lat,
-                lon,
-                accuracyMeters)
+            if (window.geoTrackingEnabled
+                    && window.geoAdminAllowed) {
+                ReflectorClient.updatePortalGeoLocation(
+                    lat,
+                    lon,
+                    accuracyMeters)
+            }
         }
     }
 
@@ -496,6 +508,7 @@ Window {
 
         // GEO Tracking - lokalna nastavitev tega telefona
         property string geoTrackingMode: "smart"
+        property bool geoTrackingUserEnabled: true
 
         // Talker Watch - lokalne nastavitve tega telefona
         property string talkerWatchJson: "[]"
@@ -1244,6 +1257,7 @@ Window {
             accentColor: window.accentColor
             reflectorClient: ReflectorClient
             trackingEnabled: window.geoTrackingEnabled
+            trackingAdminAllowed: window.geoAdminAllowed
             trackingMode: saved.geoTrackingMode
             movementIcon: window.geoMovementIcon
             movementWatchJson: saved.movementWatchJson
@@ -1257,7 +1271,9 @@ Window {
             }
 
             onTrackingRequested: enabled => {
-                if (!window.geoTrackingAllowed) {
+                saved.geoTrackingUserEnabled = enabled
+
+                if (!window.geoAdminAllowed) {
                     window.geoTrackingEnabled = false
                     TrackStore.stopSession()
                     return

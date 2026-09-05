@@ -19,6 +19,7 @@ Page {
     required property color accentColor
     required property var reflectorClient
     required property bool trackingEnabled
+    required property bool trackingAdminAllowed
     required property string trackingMode
     required property string movementIcon
     required property string movementWatchJson
@@ -1125,16 +1126,18 @@ Page {
                     visible: page.canTracking
                     text: page.trackingEnabled ? "🟢" : "🚗"
                     font.pixelSize: 19
-                    enabled: true
+                    enabled: page.trackingAdminAllowed
 
                     onClicked:
                         page.trackingRequested(!page.trackingEnabled)
 
                     ToolTip.visible: hovered
                     ToolTip.text:
-                        page.trackingEnabled
-                        ? qsTr("Live Tracking je vklopljen")
-                        : qsTr("Vklopi Live Tracking")
+                        !page.trackingAdminAllowed
+                        ? qsTr("Live Tracking je izklopil administrator")
+                        : page.trackingEnabled
+                          ? qsTr("Live Tracking je vklopljen")
+                          : qsTr("Vklopi Live Tracking")
                 }
 
                 ToolButton {
