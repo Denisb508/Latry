@@ -1606,6 +1606,82 @@ Page {
                 font.pixelSize: 14
             }
 
+            // Horizontal map pan slider
+            Slider {
+                id: mapPanHorizontal
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: 24
+                anchors.rightMargin: 66
+                anchors.bottomMargin: 12
+
+                from: -50
+                to: 50
+                value: 0
+
+                property real previousValue: 0
+
+                z: 120
+                opacity: 0.82
+
+                onMoved: {
+                    const delta = value - previousValue
+
+                    if (Math.abs(delta) > 0)
+                        map.pan(-delta * 4, 0)
+
+                    previousValue = value
+                }
+
+                onPressedChanged: {
+                    if (!pressed) {
+                        value = 0
+                        previousValue = 0
+                    }
+                }
+            }
+
+            // Vertical map pan slider
+            Slider {
+                id: mapPanVertical
+
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: 10
+
+                width: 42
+                height: Math.min(parent.height * 0.48, 320)
+
+                orientation: Qt.Vertical
+
+                from: -50
+                to: 50
+                value: 0
+
+                property real previousValue: 0
+
+                z: 120
+                opacity: 0.82
+
+                onMoved: {
+                    const delta = value - previousValue
+
+                    if (Math.abs(delta) > 0)
+                        map.pan(0, delta * 4)
+
+                    previousValue = value
+                }
+
+                onPressedChanged: {
+                    if (!pressed) {
+                        value = 0
+                        previousValue = 0
+                    }
+                }
+            }
+
             BusyIndicator {
                 anchors.centerIn: parent
                 running: page.loading
