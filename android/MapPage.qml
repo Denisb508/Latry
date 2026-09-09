@@ -28,6 +28,7 @@ Page {
     property string geoEndpoint: ""
     property var stations: []
     property bool initialMapFitDone: false
+    property var viewportBounds: null
     property bool loading: false
     property string statusText: ""
     property var localTrackPath: []
@@ -547,12 +548,26 @@ Page {
             return
         }
 
+        let endpoint = page.geoEndpoint
+        const bounds = page.viewportBounds || page.visibleGeoBounds()
+
+        if (bounds) {
+            endpoint = page.geoEndpointWithParam(
+                        "north", bounds.north.toFixed(6))
+            endpoint += "&south=" + encodeURIComponent(
+                        bounds.south.toFixed(6))
+            endpoint += "&west=" + encodeURIComponent(
+                        bounds.west.toFixed(6))
+            endpoint += "&east=" + encodeURIComponent(
+                        bounds.east.toFixed(6))
+        }
+
         page.loading = true
         page.statusText = qsTr("Osvežujem lokacije…")
 
         page.reflectorClient.refreshPortalSource(
             page.geoSourceCode,
-            page.geoEndpoint)
+            endpoint)
     }
 
     function geoEndpointWithParam(name, value) {
@@ -569,6 +584,40 @@ Page {
             + encodeURIComponent(name)
             + "="
             + encodeURIComponent(String(value || ""))
+    }
+
+    function visibleGeoBounds() {
+        if (!map || map.width <= 0 || map.height <= 0)
+            return null
+
+        const topLeft =
+            map.toCoordinate(Qt.point(0, 0), false)
+
+        const bottomRight =
+            map.toCoordinate(Qt.point(map.width, map.height), false)
+
+        if (!topLeft.isValid || !bottomRight.isValid)
+            return null
+
+        return {
+            north: Math.max(topLeft.latitude, bottomRight.latitude),
+            south: Math.min(topLeft.latitude, bottomRight.latitude),
+            west: Math.min(topLeft.longitude, bottomRight.longitude),
+            east: Math.max(topLeft.longitude, bottomRight.longitude)
+        }
+    }
+
+    Timer {
+        id: viewportDebounceTimer
+        interval: 400
+        repeat: false
+
+        onTriggered: {
+            page.viewportBounds = page.visibleGeoBounds()
+
+            if (page.viewportBounds)
+                page.refreshGeo()
+        }
     }
 
     function loadHistoryDates(callsign) {
@@ -1324,6 +1373,12 @@ Page {
             zoomLevel: 7.5
 
             property geoCoordinate startCentroid
+
+            onCenterChanged:
+                viewportDebounceTimer.restart()
+
+            onZoomLevelChanged:
+                viewportDebounceTimer.restart()
 
             // Live movement status.
             Rectangle {
