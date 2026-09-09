@@ -1682,6 +1682,53 @@ Page {
                 }
             }
 
+            // Vertical map zoom slider
+            Slider {
+                id: mapZoomSlider
+
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 10
+
+                width: 42
+                height: Math.min(parent.height * 0.48, 320)
+
+                orientation: Qt.Vertical
+
+                from: 3
+                to: 19
+                value: map.zoomLevel
+                stepSize: 0.25
+
+                z: 120
+                opacity: 0.82
+
+                onMoved:
+                    map.zoomLevel = value
+            }
+
+            Label {
+                anchors.left: parent.left
+                anchors.leftMargin: 22
+                anchors.bottom: mapZoomSlider.top
+                anchors.bottomMargin: 4
+                text: "+"
+                font.pixelSize: 18
+                font.bold: true
+                z: 121
+            }
+
+            Label {
+                anchors.left: parent.left
+                anchors.leftMargin: 24
+                anchors.top: mapZoomSlider.bottom
+                anchors.topMargin: 4
+                text: "−"
+                font.pixelSize: 18
+                font.bold: true
+                z: 121
+            }
+
             BusyIndicator {
                 anchors.centerIn: parent
                 running: page.loading

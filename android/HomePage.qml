@@ -827,9 +827,15 @@ Page {
             return
 
         // FRN bridge callsigna ne kažemo kot govorca.
-        // Pravega FRN uporabnika dobimo iz FRN proxy-ja.
-        if (page.isHiddenGatewayCallsign(callsign))
+        // Če je bil prej aktiven SvxReflector talker,
+        // ga ob prehodu na skriti gateway tudi zaključimo.
+        if (page.isHiddenGatewayCallsign(callsign)) {
+            if (page.activeTalker
+                    && page.activeTalker.source === "SvxReflector")
+                page.setActiveTalker({})
+
             return
+        }
 
         const protocolName =
                 String(page.reflectorClient.currentTalkerName || "").trim()
