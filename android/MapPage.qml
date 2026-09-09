@@ -29,6 +29,7 @@ Page {
     property var stations: []
     property bool initialMapFitDone: false
     property var viewportBounds: null
+    property string selectedMapCountry: "Slovenija"
     property bool loading: false
     property string statusText: ""
     property var localTrackPath: []
@@ -549,7 +550,17 @@ Page {
         }
 
         let endpoint = page.geoEndpoint
-        const bounds = page.viewportBounds || page.visibleGeoBounds()
+        const bounds = page.effectiveGeoBounds()
+        const countryPreset =
+            page.mapCountryPreset(page.selectedMapCountry)
+
+        if (countryPreset && !bounds) {
+            page.stations = []
+            page.remoteTracks = []
+            page.loading = false
+            page.statusText = qsTr("Zunaj izbranega območja.")
+            return
+        }
 
         if (bounds) {
             endpoint = page.geoEndpointWithParam(
@@ -584,6 +595,94 @@ Page {
             + encodeURIComponent(name)
             + "="
             + encodeURIComponent(String(value || ""))
+    }
+
+    function mapCountryPreset(name) {
+        const country = String(name || "").trim().toLowerCase()
+
+        if (country === "slovenija")
+            return {
+                centerLat: 46.15, centerLon: 14.99, zoom: 7.5,
+                north: 46.88, south: 45.42,
+                west: 13.37, east: 16.61
+            }
+
+        if (country === "hrvaška")
+            return {
+                centerLat: 45.10, centerLon: 15.20, zoom: 6.5,
+                north: 46.56, south: 42.39,
+                west: 13.49, east: 19.45
+            }
+
+        if (country === "italija")
+            return {
+                centerLat: 42.80, centerLon: 12.60, zoom: 5.5,
+                north: 47.10, south: 35.45,
+                west: 6.62, east: 18.52
+            }
+
+        if (country === "avstrija")
+            return {
+                centerLat: 47.50, centerLon: 14.20, zoom: 6.5,
+                north: 49.03, south: 46.37,
+                west: 9.53, east: 17.17
+            }
+
+        if (country === "madžarska")
+            return {
+                centerLat: 47.15, centerLon: 19.50, zoom: 6.5,
+                north: 48.59, south: 45.74,
+                west: 16.11, east: 22.90
+            }
+
+        return null
+    }
+
+    function selectMapCountry(name) {
+        page.selectedMapCountry = String(name || "").trim()
+
+        const preset =
+            page.mapCountryPreset(page.selectedMapCountry)
+
+        if (!preset)
+            return
+
+        map.center = QtPositioning.coordinate(
+                    preset.centerLat,
+                    preset.centerLon)
+
+        map.zoomLevel = preset.zoom
+        viewportDebounceTimer.restart()
+    }
+
+    function effectiveGeoBounds() {
+        const view = page.viewportBounds || page.visibleGeoBounds()
+
+        if (!view)
+            return null
+
+        const country =
+            page.mapCountryPreset(page.selectedMapCountry)
+
+        // Ročno vnesena/neznana država:
+        // uporabljaj samo trenutni viewport.
+        if (!country)
+            return view
+
+        const north = Math.min(view.north, country.north)
+        const south = Math.max(view.south, country.south)
+        const west = Math.max(view.west, country.west)
+        const east = Math.min(view.east, country.east)
+
+        if (north < south || east < west)
+            return null
+
+        return {
+            north: north,
+            south: south,
+            west: west,
+            east: east
+        }
     }
 
     function visibleGeoBounds() {
@@ -1234,6 +1333,39 @@ Page {
                     page.trackingModeRequested(
                         String(currentValue || "smart"))
                 }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Label {
+                text: "🗺 " + qsTr("Območje:")
+                font.bold: true
+            }
+
+            ComboBox {
+                id: mapCountryBox
+                Layout.fillWidth: true
+                editable: true
+
+                model: [
+                    "Slovenija",
+                    "Hrvaška",
+                    "Italija",
+                    "Avstrija",
+                    "Madžarska"
+                ]
+
+                Component.onCompleted:
+                    currentIndex = 0
+
+                onActivated:
+                    page.selectMapCountry(currentText)
+
+                onAccepted:
+                    page.selectMapCountry(editText)
             }
         }
 
