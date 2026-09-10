@@ -153,8 +153,10 @@ Page {
         page.rebuildPortalActivityModels()
         page.syncActivePortalTalker()
 
-        if (key === "SVX_REFLECTOR")
+        if (key === "SVX_REFLECTOR") {
+            page.syncReflectorUsers()
             page.syncSvxTalker()
+        }
     }
 
     function hasPortalSource(code) {
@@ -998,25 +1000,47 @@ Page {
                 || cs === "327FRSOBALA"
     }
 
+    function isPortalReflectorUser(callsign) {
+        const cs = String(callsign || "").trim().toUpperCase()
+
+        if (!cs)
+            return false
+
+        const state = page.portalSourceStates["SVX_REFLECTOR"]
+
+        if (!state || !state.success || !state.data)
+            return false
+
+        const users = state.data.users || []
+
+        for (let i = 0; i < users.length; ++i) {
+            const user = users[i]
+
+            if (!user || typeof user !== "object")
+                continue
+
+            const userCallsign =
+                String(user.callsign || "").trim().toUpperCase()
+
+            if (userCallsign === cs)
+                return true
+        }
+
+        return false
+    }
+
     function normalizedReflectorUsers(nodes) {
         const result = []
         if (nodes && Array.isArray(nodes)) {
             for (let i = 0; i < nodes.length; ++i) {
                 const cs = String(nodes[i] || "").trim().toUpperCase()
                 if (cs.length > 0
-                        && cs.indexOf("OB") === 0
+                        && page.isPortalReflectorUser(cs)
                         && !page.isHiddenGatewayCallsign(cs)
                         && result.indexOf(cs) < 0)
                     result.push(cs)
             }
         }
-
-        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
-        if (!page.reflectorClient.isDisconnected
-                && ownCallsign.length > 0
-                && ownCallsign.indexOf("OB") === 0
-                && result.indexOf(ownCallsign) < 0)
-            result.push(ownCallsign)
 
         result.sort()
         return result
@@ -1035,7 +1059,7 @@ Page {
         const cs = String(callsign || "").trim().toUpperCase()
         const next = reflectorUsers.slice()
         if (cs.length === 0
-                || cs.indexOf("OB") !== 0
+                || !page.isPortalReflectorUser(cs)
                 || page.isHiddenGatewayCallsign(cs)
                 || next.indexOf(cs) >= 0)
             return
@@ -1045,9 +1069,6 @@ Page {
     }
     function removeReflectorUser(callsign) {
         const cs = String(callsign || "").trim().toUpperCase()
-        const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
-        if (cs === ownCallsign && !page.reflectorClient.isDisconnected)
-            return
 
         const next = reflectorUsers.slice()
         const idx = next.indexOf(cs)
