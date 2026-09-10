@@ -1506,11 +1506,37 @@ Page {
 
             property geoCoordinate startCentroid
 
-            onCenterChanged:
-                viewportDebounceTimer.restart()
+            onCenterChanged: {
+                const preset = page.mapCountryPreset(page.selectedMapCountry)
 
-            onZoomLevelChanged:
+                if (preset) {
+                    const lat = Math.max(
+                                    preset.south,
+                                    Math.min(preset.north, map.center.latitude))
+                    const lon = Math.max(
+                                    preset.west,
+                                    Math.min(preset.east, map.center.longitude))
+
+                    if (Math.abs(lat - map.center.latitude) > 0.00001
+                            || Math.abs(lon - map.center.longitude) > 0.00001) {
+                        map.center = QtPositioning.coordinate(lat, lon)
+                        return
+                    }
+                }
+
                 viewportDebounceTimer.restart()
+            }
+
+            onZoomLevelChanged: {
+                const preset = page.mapCountryPreset(page.selectedMapCountry)
+
+                if (preset && map.zoomLevel < preset.zoom) {
+                    map.zoomLevel = preset.zoom
+                    return
+                }
+
+                viewportDebounceTimer.restart()
+            }
 
             // Live movement status.
             Rectangle {
