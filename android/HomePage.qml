@@ -1031,7 +1031,7 @@ Page {
 
     function normalizedReflectorUsers(nodes) {
         const result = []
-        if (nodes && Array.isArray(nodes)) {
+        if (nodes) {
             for (let i = 0; i < nodes.length; ++i) {
                 const cs = String(nodes[i] || "").trim().toUpperCase()
                 if (cs.length > 0
