@@ -1231,6 +1231,26 @@ Page {
             name: "osm.mapping.providersrepository.disabled"
             value: true
         }
+
+        PluginParameter {
+            name: "osm.mapping.cache.disk.cost_strategy"
+            value: "bytesize"
+        }
+
+        PluginParameter {
+            name: "osm.mapping.cache.disk.size"
+            value: 536870912
+        }
+
+        PluginParameter {
+            name: "osm.mapping.cache.memory.size"
+            value: 16777216
+        }
+
+        PluginParameter {
+            name: "osm.mapping.cache.texture.size"
+            value: 16777216
+        }
     }
 
     ColumnLayout {
