@@ -1004,6 +1004,7 @@ Page {
             for (let i = 0; i < nodes.length; ++i) {
                 const cs = String(nodes[i] || "").trim().toUpperCase()
                 if (cs.length > 0
+                        && cs.indexOf("OB") === 0
                         && !page.isHiddenGatewayCallsign(cs)
                         && result.indexOf(cs) < 0)
                     result.push(cs)
@@ -1013,6 +1014,7 @@ Page {
         const ownCallsign = String(page.selectedProfileCallsign || "").trim().toUpperCase()
         if (!page.reflectorClient.isDisconnected
                 && ownCallsign.length > 0
+                && ownCallsign.indexOf("OB") === 0
                 && result.indexOf(ownCallsign) < 0)
             result.push(ownCallsign)
 
@@ -1033,6 +1035,7 @@ Page {
         const cs = String(callsign || "").trim().toUpperCase()
         const next = reflectorUsers.slice()
         if (cs.length === 0
+                || cs.indexOf("OB") !== 0
                 || page.isHiddenGatewayCallsign(cs)
                 || next.indexOf(cs) >= 0)
             return
