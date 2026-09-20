@@ -17,10 +17,6 @@
 
 #include "AudioJitterBuffer.h"
 
-namespace {
-constexpr auto kShortGapRebufferWindow = std::chrono::milliseconds(100);
-}
-
 AudioJitterBuffer::AudioJitterBuffer(unsigned fifoSize)
     : m_fifoSize(fifoSize), m_fifo(fifoSize)
 {
@@ -123,12 +119,7 @@ int AudioJitterBuffer::readSamples(float* output, int count)
         std::fill(output + readCount, output + count, 0.0f);
     }
 
-    const unsigned remaining = (m_head + m_fifoSize - m_tail) % m_fifoSize;
-    if (remaining == 0 && m_prebufSamples > 0 && !m_prebuf && m_lastWriteTime != std::chrono::steady_clock::time_point{}) {
-        const auto now = std::chrono::steady_clock::now();
-        if (now - m_lastWriteTime <= kShortGapRebufferWindow) {
-            m_prebuf = true;
-        }
-    }
+    // Do not re-enter the startup prebuffer after a short underrun.
+    // The Android output pads missing samples with silence.
     return readCount;
 }

@@ -10,7 +10,7 @@ class AudioJitterBufferTest : public QObject
 
 private slots:
     void prebufferBlocksPlaybackUntilThresholdIsReached();
-    void underrunReentersPrebufferForShortGaps();
+    void underrunPadsWithoutRebufferingForShortGaps();
     void resizeAndPrebufferClampResetState();
     void overflowDropsTheOldestHalfOfBufferedSamples();
 };
@@ -41,7 +41,7 @@ void AudioJitterBufferTest::prebufferBlocksPlaybackUntilThresholdIsReached()
     QVERIFY(buffer.empty());
 }
 
-void AudioJitterBufferTest::underrunReentersPrebufferForShortGaps()
+void AudioJitterBufferTest::underrunPadsWithoutRebufferingForShortGaps()
 {
     AudioJitterBuffer buffer(8);
     const std::array<float, 4> initialBurst{1.0f, 2.0f, 3.0f, 4.0f};
@@ -55,18 +55,18 @@ void AudioJitterBufferTest::underrunReentersPrebufferForShortGaps()
     QVERIFY(buffer.empty());
 
     buffer.writeSamples(shortRefill.data(), static_cast<int>(shortRefill.size()));
-    QCOMPARE(buffer.samplesReadyForPlayback(), 0u);
-    QCOMPARE(buffer.readSamples(output.data(), static_cast<int>(output.size())), 0);
+    QCOMPARE(buffer.samplesReadyForPlayback(), 2u);
+    QCOMPARE(buffer.readSamples(output.data(), static_cast<int>(output.size())), 2);
 
-    const std::array<float, 4> blockedOutput{0.0f, 0.0f, 0.0f, 0.0f};
-    QVERIFY(output == blockedOutput);
+    const std::array<float, 4> expectedShort{5.0f, 6.0f, 0.0f, 0.0f};
+    QVERIFY(output == expectedShort);
 
     buffer.writeSamples(secondRefill.data(), static_cast<int>(secondRefill.size()));
-    QCOMPARE(buffer.samplesReadyForPlayback(), 4u);
-    QCOMPARE(buffer.readSamples(output.data(), static_cast<int>(output.size())), 4);
+    QCOMPARE(buffer.samplesReadyForPlayback(), 2u);
+    QCOMPARE(buffer.readSamples(output.data(), static_cast<int>(output.size())), 2);
 
-    const std::array<float, 4> expected{5.0f, 6.0f, 7.0f, 8.0f};
-    QVERIFY(output == expected);
+    const std::array<float, 4> expectedSecond{7.0f, 8.0f, 0.0f, 0.0f};
+    QVERIFY(output == expectedSecond);
 }
 
 void AudioJitterBufferTest::resizeAndPrebufferClampResetState()
