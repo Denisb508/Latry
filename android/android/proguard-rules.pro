@@ -23,6 +23,7 @@
 -keep class yo6say.latry.LatryAudioTrackPlayer { *; }
 -keep class yo6say.latry.LatryTranscriptionManager { *; }
 -keep class yo6say.latry.ConnectionProfileStore { *; }
+-keep class yo6say.latry.LatryPortalTokenStore { *; }
 
 # Native registration in JNI_OnLoad depends on exact native method names.
 -keepclasseswithmembernames,includedescriptorclasses class * {
