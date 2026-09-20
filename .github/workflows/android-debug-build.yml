@@ -113,7 +113,9 @@ jobs:
       working-directory: android
       run: |
         # Use primary Qt installation (arm64) for qt-cmake  
+        QT_ROOT_DIR="${QT_ROOT_DIR%/*}/android_arm64_v8a"
         QT_CMAKE_PATH="$QT_ROOT_DIR/bin/qt-cmake"
+        chmod +x "$QT_CMAKE_PATH"
         
         $QT_CMAKE_PATH -S . -B build-release \
           -DQT_ANDROID_ABIS="armeabi-v7a;arm64-v8a" \
