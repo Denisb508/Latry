@@ -1,9 +1,10 @@
-name: Android Debug Build
+name: Android Release Test
 
 on:
   push:
     branches:
       - main
+      - 'test/a9-release-3e5a1176'
       - develop
       - 'feature/**'
       - 'feat/**'
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches:
       - main
+      - 'test/a9-release-3e5a1176'
       - develop
   workflow_dispatch:
 
@@ -64,11 +66,11 @@ jobs:
       uses: actions/cache@v4
       with:
         path: |
-          android/build
+          android/build-release
           ~/.ccache
-        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}
+        key: ${{ runner.os }}-cmake-release-${{ hashFiles('**/CMakeLists.txt') }}
         restore-keys: |
-          ${{ runner.os }}-cmake-
+          ${{ runner.os }}-cmake-release-
 
     - name: Install build dependencies
       run: |
@@ -111,18 +113,18 @@ jobs:
         # Use primary Qt installation (arm64) for qt-cmake  
         QT_CMAKE_PATH="$QT_ROOT_DIR/bin/qt-cmake"
         
-        $QT_CMAKE_PATH -S . -B build \
+        $QT_CMAKE_PATH -S . -B build-release \
           -DQT_ANDROID_ABIS="armeabi-v7a;arm64-v8a" \
           -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
           -DANDROID_NDK_ROOT=$ANDROID_NDK_ROOT \
           -DANDROID_PLATFORM=android-28 \
-          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_BUILD_TYPE=Release \
           -G Ninja
 
     - name: Build Android APK
       working-directory: android
       run: |
-        cmake --build build --target apk
+        cmake --build build-release --target apk
 
     - name: Sign APK with OB508 key
       env:
@@ -134,7 +136,7 @@ jobs:
         KEYSTORE="$RUNNER_TEMP/latry-ob508.jks"
         printf '%s' "$LATRY_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
 
-        APK_PATH=$(find android/build -name "*.apk" -type f | grep -v latryservice | head -1)
+        APK_PATH=$(find android/build-release -name "*.apk" -type f | grep -v latryservice | head -1)
         if [ -z "$APK_PATH" ]; then
           echo "No APK found for signing!"
           exit 1
@@ -160,7 +162,7 @@ jobs:
     - name: Find and rename APK files
       id: find_apk
       run: |
-        APK_PATH=$(find android/build -name "*.apk" -type f | grep -v latryservice | head -1)
+        APK_PATH=$(find android/build-release -name "*.apk" -type f | grep -v latryservice | head -1)
         if [ -z "$APK_PATH" ]; then
           echo "No APK found!"
           exit 1
@@ -173,7 +175,7 @@ jobs:
         SHORT_SHA=${SHORT_SHA:0:8}
         
         APK_DIR=$(dirname "$APK_PATH")
-        NEW_APK_NAME="latry-debug-${SAFE_BRANCH_NAME}-${SHORT_SHA}.apk"
+        NEW_APK_NAME="latry-release-${SAFE_BRANCH_NAME}-${SHORT_SHA}.apk"
         NEW_APK_PATH="$APK_DIR/$NEW_APK_NAME"
         
         mv "$APK_PATH" "$NEW_APK_PATH"
