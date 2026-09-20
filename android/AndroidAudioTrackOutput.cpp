@@ -485,19 +485,22 @@ void AndroidAudioTrackOutput::playbackLoop()
             }
         }
 
-        int samplesToWrite = 0;
+        // Always feed AudioTrack a complete frame. Pad missing samples
+        // with silence so a temporary jitter-buffer shortage cannot cause
+        // an AudioTrack underrun and an audible click.
+        std::fill(frame.begin(), frame.end(), 0.0f);
+
         if (m_jitterBuffer != nullptr) {
-            samplesToWrite = static_cast<int>(std::min(
+            const int available = static_cast<int>(std::min(
                 static_cast<unsigned>(frame.size()),
                 m_jitterBuffer->samplesReadyForPlayback()));
-            if (samplesToWrite > 0) {
-                samplesToWrite = m_jitterBuffer->readSamples(frame.data(), samplesToWrite);
+
+            if (available > 0) {
+                m_jitterBuffer->readSamples(frame.data(), available);
             }
         }
 
-        if (samplesToWrite > 0) {
-            writeSamplesBlocking(frame.data(), samplesToWrite);
-        }
+        writeSamplesBlocking(frame.data(), static_cast<int>(frame.size()));
 
         nextWake += std::chrono::milliseconds(AudioEngine::FRAME_SIZE_MS);
         const auto now = std::chrono::steady_clock::now();
