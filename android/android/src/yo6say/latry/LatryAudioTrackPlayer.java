@@ -29,12 +29,9 @@ public final class LatryAudioTrackPlayer {
             ensureInitialized(context);
             stopPlaybackLocked();
 
-            int[] encodings;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                encodings = new int[] {AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_16BIT};
-            } else {
-                encodings = new int[] {AudioFormat.ENCODING_PCM_16BIT};
-            }
+            // PCM16 is more reliable than float on some Samsung audio HALs
+            // at 16 kHz and avoids intermittent short playback glitches.
+            int[] encodings = {AudioFormat.ENCODING_PCM_16BIT};
 
             for (int encoding : encodings) {
                 if (tryBuildTrack(encoding)) {
