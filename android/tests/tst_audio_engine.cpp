@@ -22,6 +22,7 @@ private slots:
     void queuedNativeFloatCaptureEncodesViaEventLoop();
     void queuedNativeFloatCaptureDropsAfterStop();
     void processReceivedAudioDropsStaleOutOfOrderPackets();
+    void processReceivedAudioAccountsForUdpControls();
     void processReceivedAudioCapsPacketLossConcealmentFrames();
     void processReceivedAudioTreatsSequenceZeroAsRealPacket();
     void processReceivedAudioHandlesSequenceWraparound();
@@ -198,6 +199,52 @@ void AudioEngineTest::queuedNativeFloatCaptureDropsAfterStop()
     QTRY_VERIFY(barrierReached);
     QCOMPARE(encodedSpy.count(), 0);
     QVERIFY(engine.m_pendingInputSamples.empty());
+}
+
+void AudioEngineTest::processReceivedAudioAccountsForUdpControls()
+{
+    const QByteArray packet = encodeFramePacket();
+    QVERIFY(!packet.isEmpty());
+    struct Event { char type; quint16 seq; };
+    struct Scenario {
+        const char *name;
+        std::vector<Event> events;
+        unsigned frames;
+    };
+    const Scenario scenarios[] = {
+        {"before audio", {{'c', 100}, {'a', 200}}, 1},
+        {"heartbeat", {{'a', 100}, {'c', 101}, {'a', 102}}, 2},
+        {"duplicate control", {{'a', 100}, {'c', 101}, {'c', 101}, {'a', 102}}, 2},
+        {"multiple controls", {{'a', 100}, {'c', 101}, {'c', 102}, {'a', 103}}, 2},
+        {"loss before control", {{'a', 100}, {'c', 102}, {'a', 103}}, 3},
+        {"loss after control", {{'a', 100}, {'c', 101}, {'a', 103}}, 3},
+        {"loss both sides", {{'a', 100}, {'c', 102}, {'a', 104}}, 4},
+        {"PLC cap", {{'a', 100}, {'c', 105}, {'c', 110}, {'a', 111}}, 5},
+        {"stale control", {{'a', 100}, {'c', 99}, {'a', 102}}, 3},
+        {"duplicate audio", {{'a', 100}, {'c', 101}, {'a', 100}, {'a', 102}}, 2},
+        {"stale audio", {{'a', 100}, {'c', 102}, {'a', 99}, {'a', 103}}, 3},
+        {"wrap", {{'a', 65535}, {'c', 0}, {'a', 1}}, 2},
+        {"loss at wrap", {{'a', 65534}, {'c', 0}, {'a', 1}}, 3},
+        {"flush", {{'a', 100}, {'c', 102}, {'f', 0}, {'a', 500}}, 1},
+    };
+    for (const auto &scenario : scenarios) {
+        AudioEngine engine;
+        engine.m_audioReady = true;
+        engine.m_decoder = std::make_unique<OpusDecoder>(
+            AudioEngine::SAMPLE_RATE, AudioEngine::CHANNELS);
+        for (const auto &event : scenario.events) {
+            if (event.type == 'a') {
+                engine.processReceivedAudio(packet, event.seq);
+            } else if (event.type == 'c') {
+                QVERIFY(QMetaObject::invokeMethod(&engine, "processReceivedUdpControl",
+                    Qt::DirectConnection, Q_ARG(quint16, event.seq)));
+            } else {
+                engine.flushAudioBuffers();
+            }
+        }
+        QVERIFY2(engine.m_jitterBuffer.samplesInBuffer()
+                 == scenario.frames * AudioEngine::FRAME_SIZE_SAMPLES, scenario.name);
+    }
 }
 
 void AudioEngineTest::processReceivedAudioDropsStaleOutOfOrderPackets()

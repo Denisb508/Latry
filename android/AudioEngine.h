@@ -61,6 +61,7 @@ public slots:
     void startRecording();
     void stopRecording();
     void processReceivedAudio(const QByteArray &audioData, quint16 sequence);
+    void processReceivedUdpControl(quint16 sequence);
     void flushAudioBuffers();
     void cleanup();
     void checkAudioHealth();
@@ -158,6 +159,9 @@ private:
     AudioStreamDevice* m_audioStreamDevice = nullptr;
     AudioJitterBuffer m_jitterBuffer;
     const int m_maxBufferFrames = 24; // 480ms headroom (0.0.6 working value)
+    static constexpr unsigned MAX_RX_PLC_FRAMES = 3;
+    unsigned m_pendingRxLossFrames = 0;
+    // Tracks audio and control UDP sequences after audio starts.
     bool m_hasLastAudioSeq = false;
     quint16 m_lastAudioSeq = 0;
     int m_lastDecodedFrameSamples = FRAME_SIZE_SAMPLES;

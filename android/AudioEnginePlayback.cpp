@@ -119,6 +119,25 @@ void AudioEngine::setTranscriptionPipeFd(int fd)
 #endif
 }
 
+void AudioEngine::processReceivedUdpControl(quint16 sequence)
+{
+    if (!m_hasLastAudioSeq) {
+        m_pendingRxLossFrames = 0;
+        return;
+    }
+
+    const quint16 expected = static_cast<quint16>(m_lastAudioSeq + 1);
+    const quint16 diff = static_cast<quint16>(sequence - expected);
+    if (diff > 0x7fff) {
+        return;
+    }
+
+    // Defer unresolved UDP gaps until the next audio packet.
+    m_pendingRxLossFrames = std::min(
+        m_pendingRxLossFrames + static_cast<unsigned>(diff), MAX_RX_PLC_FRAMES);
+    m_lastAudioSeq = sequence;
+}
+
 void AudioEngine::processReceivedAudio(const QByteArray &audioData, quint16 sequence)
 {
     if (!m_decoder || !m_audioReady) {
@@ -128,7 +147,11 @@ void AudioEngine::processReceivedAudio(const QByteArray &audioData, quint16 sequ
         return;
     }
 
-    // Sequence number gap handling with bounded PLC
+    if (!m_hasLastAudioSeq) {
+        m_pendingRxLossFrames = 0;
+    }
+
+    // Received controls advance the shared UDP sequence without PLC.
     if (m_hasLastAudioSeq) {
         const quint16 expected = static_cast<quint16>(m_lastAudioSeq + 1);
         const quint16 diff = static_cast<quint16>(sequence - expected);
@@ -138,10 +161,11 @@ void AudioEngine::processReceivedAudio(const QByteArray &audioData, quint16 sequ
             return;
         }
 
-        if (diff > 0) {
-            // Lost frames — apply PLC for up to 3 frames (60ms), skip the rest
-            constexpr unsigned kMaxPlcFrames = 3;
-            const unsigned plcCount = std::min(static_cast<unsigned>(diff), kMaxPlcFrames);
+        const unsigned missing = static_cast<unsigned>(diff) + m_pendingRxLossFrames;
+        m_pendingRxLossFrames = 0;
+        if (missing > 0) {
+            // A missing UDP packet may contain audio; retain bounded PLC.
+            const unsigned plcCount = std::min(missing, MAX_RX_PLC_FRAMES);
             const int plcFrameSamples = std::clamp(m_lastDecodedFrameSamples,
                                                    FRAME_SIZE_SAMPLES,
                                                    MAX_FRAME_SIZE_SAMPLES);
@@ -154,8 +178,8 @@ void AudioEngine::processReceivedAudio(const QByteArray &audioData, quint16 sequ
                     m_jitterBuffer.writeSamples(plc.data(), plcSamples);
                 }
             }
-            if (diff > kMaxPlcFrames) {
-                qDebug() << "AudioEngine: skipped" << (diff - kMaxPlcFrames)
+            if (missing > MAX_RX_PLC_FRAMES) {
+                qDebug() << "AudioEngine: skipped" << (missing - MAX_RX_PLC_FRAMES)
                          << "lost frames beyond PLC limit";
             }
         }
@@ -245,6 +269,7 @@ void AudioEngine::flushAudioBuffers()
     // Reset last audio sequence
     m_lastAudioSeq = 0;
     m_hasLastAudioSeq = false;
+    m_pendingRxLossFrames = 0;
     m_lastDecodedFrameSamples = FRAME_SIZE_SAMPLES;
 
     // Reset Opus decoder to clear internal state (prevents "corrupted stream" errors)

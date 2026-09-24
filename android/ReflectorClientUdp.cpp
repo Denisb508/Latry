@@ -80,6 +80,12 @@ void ReflectorClient::onUdpReadyRead()
                      << udpMessageTypeName(messageType);
         }
 
+        if (m_audioEngine && messageType != Svxlink::UdpMsgType::UDP_AUDIO) {
+            const quint16 seq = qFromBigEndian(header->sequenceNum);
+            QMetaObject::invokeMethod(m_audioEngine, "processReceivedUdpControl",
+                                     Qt::QueuedConnection, Q_ARG(quint16, seq));
+        }
+
         switch (messageType) {
         case Svxlink::UdpMsgType::UDP_HEARTBEAT: {
             break;
