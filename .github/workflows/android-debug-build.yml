@@ -39,7 +39,7 @@ jobs:
       uses: jurplel/install-qt-action@v4
       with:
         version: '6.11.0'
-        host: 'linux'
+        host: 'all_os'
         target: 'android'
         arch: 'android_arm64_v8a'
         modules: 'qtmultimedia qtconnectivity qtpositioning qtlocation'
@@ -49,7 +49,7 @@ jobs:
       uses: jurplel/install-qt-action@v4
       with:
         version: '6.11.0'
-        host: 'linux'
+        host: 'all_os'
         target: 'android'
         arch: 'android_armv7'
         modules: 'qtmultimedia qtconnectivity qtpositioning qtlocation'
