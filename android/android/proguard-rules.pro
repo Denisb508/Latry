@@ -28,3 +28,10 @@
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
+
+# Additional classes resolved from Qt/C++ using hard-coded JNI class names.
+-keep class yo6say.latry.HardwarePttLearningCoordinator { *; }
+-keep class yo6say.latry.HardwarePttSettingsStore { *; }
+-keep class yo6say.latry.LatryPortalTokenStore { *; }
+-keep class yo6say.latry.SppDeviceHelper { *; }
+-keep class yo6say.latry.TalkerOverlayManager { *; }
