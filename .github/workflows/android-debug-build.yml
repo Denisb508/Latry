@@ -33,7 +33,7 @@ jobs:
         distribution: 'temurin'
 
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      uses: android-actions/setup-android@v4
 
     - name: Install Qt ARM64
       uses: jurplel/install-qt-action@v4
