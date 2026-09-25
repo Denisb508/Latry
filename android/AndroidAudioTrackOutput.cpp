@@ -2,6 +2,7 @@
 
 #include "AudioEngine.h"
 #include "AudioJitterBuffer.h"
+#include "Resampler.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +19,8 @@ constexpr char kQtNativeClass[] = "org/qtproject/qt/android/QtNative";
 constexpr char kRouteManagerClass[] = "yo6say/latry/LatryAudioRouteManager";
 constexpr char kAudioTrackPlayerClassName[] = "yo6say.latry.LatryAudioTrackPlayer";
 constexpr char kSpeakerRoute[] = "speaker";
+constexpr char kBluetoothRoute[] = "bluetooth";
+constexpr int kBluetoothPlaybackSampleRate = 48000;
 
 QJniObject androidContext()
 {
@@ -281,6 +284,10 @@ bool AndroidAudioTrackOutput::start()
     }
 
     const QString route = currentRoute();
+    const int outputSampleRate =
+            route == QString::fromLatin1(kBluetoothRoute)
+                    ? kBluetoothPlaybackSampleRate
+                    : AudioEngine::SAMPLE_RATE;
     const QJniObject routeString = QJniObject::fromString(route);
     const jboolean started = env->CallStaticBooleanMethod(
         klass,
@@ -312,9 +319,13 @@ bool AndroidAudioTrackOutput::start()
         m_paused = false;
         m_stopRequested = false;
         m_useFloatPlayback = useFloat;
+        m_outputSampleRate = outputSampleRate;
     }
 
-    qDebug() << "AndroidAudioTrackOutput: playback encoding =" << (useFloat ? "FLOAT" : "INT16");
+    qDebug() << "AndroidAudioTrackOutput: playback encoding ="
+             << (useFloat ? "FLOAT" : "INT16")
+             << "sampleRate =" << outputSampleRate
+             << "route =" << route;
     m_playbackThread = std::thread(&AndroidAudioTrackOutput::playbackLoop, this);
     return true;
 #else
@@ -472,6 +483,21 @@ void AndroidAudioTrackOutput::playbackLoop()
     }
 
     std::vector<float> frame(AudioEngine::FRAME_SIZE_SAMPLES, 0.0f);
+
+    int outputSampleRate = AudioEngine::SAMPLE_RATE;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        outputSampleRate = m_outputSampleRate;
+    }
+
+    std::unique_ptr<Resampler> outputResampler;
+    if (outputSampleRate != AudioEngine::SAMPLE_RATE) {
+        outputResampler = std::make_unique<Resampler>(
+                AudioEngine::SAMPLE_RATE,
+                outputSampleRate,
+                AudioEngine::CHANNELS);
+    }
+
     auto nextWake = std::chrono::steady_clock::now();
 
     while (true) {
@@ -496,7 +522,17 @@ void AndroidAudioTrackOutput::playbackLoop()
         }
 
         if (samplesToWrite > 0) {
-            writeSamplesBlocking(frame.data(), samplesToWrite);
+            if (outputResampler) {
+                const std::vector<float> resampled =
+                        outputResampler->process(frame.data(), samplesToWrite);
+                if (!resampled.empty()) {
+                    writeSamplesBlocking(
+                            resampled.data(),
+                            static_cast<int>(resampled.size()));
+                }
+            } else {
+                writeSamplesBlocking(frame.data(), samplesToWrite);
+            }
         }
 
         nextWake += std::chrono::milliseconds(AudioEngine::FRAME_SIZE_MS);
