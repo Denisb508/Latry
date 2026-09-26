@@ -11,8 +11,6 @@ import android.util.Log;
 public final class LatryAudioTrackPlayer {
     private static final String TAG = "LatryAudioTrack";
     private static final int SAMPLE_RATE = 16000;
-    private static final int BLUETOOTH_SAMPLE_RATE = 48000;
-    private static int currentSampleRate = SAMPLE_RATE;
     private static final int CHANNEL_MASK = AudioFormat.CHANNEL_OUT_MONO;
     private static final int BUFFER_MULTIPLIER = 4;
 
@@ -38,15 +36,9 @@ public final class LatryAudioTrackPlayer {
                 encodings = new int[] {AudioFormat.ENCODING_PCM_16BIT};
             }
 
-            String normalizedRoute = normalizeRouteId(routeId);
-            int playbackSampleRate =
-                    LatryAudioRoutePolicy.ROUTE_BLUETOOTH.equals(normalizedRoute)
-                            ? BLUETOOTH_SAMPLE_RATE
-                            : SAMPLE_RATE;
-
             for (int encoding : encodings) {
-                if (tryBuildTrack(encoding, playbackSampleRate)) {
-                    currentRouteId = normalizedRoute;
+                if (tryBuildTrack(encoding)) {
+                    currentRouteId = normalizeRouteId(routeId);
                     applyPreferredDeviceLocked(currentRouteId);
 
                     try {
@@ -57,7 +49,7 @@ public final class LatryAudioTrackPlayer {
                         return false;
                     }
 
-                    Log.i(TAG, "AudioTrack started @ " + currentSampleRate + " Hz format="
+                    Log.i(TAG, "AudioTrack started @ " + SAMPLE_RATE + " Hz format="
                             + encodingName(currentEncoding) + " on route " + currentRouteId);
                     return true;
                 }
@@ -68,8 +60,8 @@ public final class LatryAudioTrackPlayer {
         }
     }
 
-    private static boolean tryBuildTrack(int encoding, int sampleRate) {
-        int minBufferSize = AudioTrack.getMinBufferSize(sampleRate, CHANNEL_MASK, encoding);
+    private static boolean tryBuildTrack(int encoding) {
+        int minBufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_MASK, encoding);
         if (minBufferSize <= 0) {
             return false;
         }
@@ -80,7 +72,7 @@ public final class LatryAudioTrackPlayer {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build();
         AudioFormat audioFormat = new AudioFormat.Builder()
-                .setSampleRate(sampleRate)
+                .setSampleRate(SAMPLE_RATE)
                 .setEncoding(encoding)
                 .setChannelMask(CHANNEL_MASK)
                 .build();
@@ -91,8 +83,7 @@ public final class LatryAudioTrackPlayer {
                 .setBufferSizeInBytes(bufferSize)
                 .setTransferMode(AudioTrack.MODE_STREAM);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && sampleRate == SAMPLE_RATE) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
         }
 
@@ -110,7 +101,6 @@ public final class LatryAudioTrackPlayer {
         }
 
         currentEncoding = encoding;
-        currentSampleRate = sampleRate;
         currentContentType = AudioAttributes.CONTENT_TYPE_SPEECH;
         return true;
     }
@@ -299,7 +289,6 @@ public final class LatryAudioTrackPlayer {
         audioTrack = null;
         currentContentType = AudioAttributes.CONTENT_TYPE_UNKNOWN;
         currentEncoding = AudioFormat.ENCODING_PCM_16BIT;
-        currentSampleRate = SAMPLE_RATE;
     }
 
     private static String encodingName(int encoding) {

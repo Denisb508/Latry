@@ -37,7 +37,6 @@ private:
     bool m_paused = false;
     bool m_stopRequested = false;
     bool m_useFloatPlayback = false;
-    int m_outputSampleRate = 16000;
     std::vector<short> m_pcm16Buffer;
     void* m_sampleArrayGlobal = nullptr;
     int m_sampleArraySize = 0;
