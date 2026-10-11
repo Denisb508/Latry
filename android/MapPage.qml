@@ -1337,6 +1337,8 @@ Page {
                     { text: "🚗 15 s", value: "15" },
                     { text: "🕒 30 s", value: "30" },
                     { text: "🔋 60 s", value: "60" },
+                    { text: "🕒 15 min", value: "900" },
+                    { text: "🕒 30 min", value: "1800" },
                     { text: "🔋 1 h", value: "3600" }
                 ]
 
@@ -1345,14 +1347,14 @@ Page {
 
                 Component.onCompleted: {
                     const index =
-                        indexOfValue(page.trackingMode || "smart")
+                        indexOfValue(page.trackingMode || "3600")
 
                     currentIndex = index >= 0 ? index : 0
                 }
 
                 onActivated: {
                     page.trackingModeRequested(
-                        String(currentValue || "smart"))
+                        String(currentValue || "3600"))
                 }
             }
         }
