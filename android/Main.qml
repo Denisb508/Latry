@@ -129,7 +129,7 @@ Window {
 
     function geoTrackRecordIntervalMs(speedKmh, stationaryMs) {
         const mode =
-            String(saved.geoTrackingMode || "smart")
+            String(saved.geoTrackingMode || "3600")
 
         if (mode === "10")
             return 10000
@@ -139,6 +139,9 @@ Window {
 
         if (mode === "30")
             return 30000
+
+        if (mode === "3600")
+            return 60 * 60 * 1000
 
         if (mode === "60")
             return 60000
@@ -158,7 +161,7 @@ Window {
     }
 
     function geoTrackingIntervalMs() {
-        const mode = String(saved.geoTrackingMode || "smart")
+        const mode = String(saved.geoTrackingMode || "3600")
 
         if (mode === "10")
             return 10000
@@ -166,6 +169,9 @@ Window {
             return 15000
         if (mode === "30")
             return 30000
+        if (mode === "3600")
+            return 60 * 60 * 1000
+
         if (mode === "60")
             return 60000
 
@@ -507,7 +513,7 @@ Window {
         property bool liveTranscriptionEnabled: false
 
         // GEO Tracking - lokalna nastavitev tega telefona
-        property string geoTrackingMode: "smart"
+        property string geoTrackingMode: "3600"
         property bool geoTrackingUserEnabled: true
 
         // Talker Watch - lokalne nastavitve tega telefona
