@@ -49,6 +49,8 @@ Page {
     property var selectedTalkerDetails: ({})
     property var frnTalkers: ({})
     property var portalSourceStates: ({})
+    // Keep concurrent Portal requests bounded so responses cannot flood the audio/UI event loop.
+    property var portalSourceFetchStartedAt: ({})
     property string activityUsersTitle: ""
     property string activityUsersSource: ""
     property string activityUsersRoom: ""
@@ -118,6 +120,14 @@ Page {
             if (!code || !endpoint || type === "svxreflector")
                 continue
 
+            const key = code.toUpperCase()
+            const now = Date.now()
+            const startedAt = Number(page.portalSourceFetchStartedAt[key] || 0)
+            // One request per source at a time; retry if an earlier request gets stuck.
+            if (startedAt > 0 && now - startedAt < 12000)
+                continue
+
+            page.portalSourceFetchStartedAt[key] = now
             page.reflectorClient.refreshPortalSource(code, endpoint)
         }
     }
@@ -1245,8 +1255,9 @@ Page {
         }
     }
 
+    // Poll Portal sources at a modest rate to keep the RX UDP/audio event loop responsive.
     Timer {
-        interval: 500
+        interval: 3000
         repeat: true
         running: !page.reflectorClient.isDisconnected
                  && !page.reflectorClient.portalAccessLoading
@@ -1279,6 +1290,8 @@ Page {
         target: page.reflectorClient
 
         function onPortalSourceFetchFinished(code, success, data, error) {
+            const key = String(code || "").trim().toUpperCase()
+            delete page.portalSourceFetchStartedAt[key]
             page.cachePortalSourceResult(code, success, data, error)
         }
 
