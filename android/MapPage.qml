@@ -1336,7 +1336,8 @@ Page {
                     { text: "⚡ 10 s", value: "10" },
                     { text: "🚗 15 s", value: "15" },
                     { text: "🕒 30 s", value: "30" },
-                    { text: "🔋 60 s", value: "60" }
+                    { text: "🔋 60 s", value: "60" },
+                    { text: "🔋 1 h", value: "3600" }
                 ]
 
                 textRole: "text"
