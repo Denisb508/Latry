@@ -26,6 +26,7 @@ Window {
 
     // SMART tracking state
     property double geoLastTrackPointMs: 0
+    property double geoLastPortalUpdateMs: 0
     property bool geoLastPositionStationary: true
     property double geoStationarySinceMs: 0
     property var geoLastTrackCoordinate: null
@@ -140,6 +141,12 @@ Window {
         if (mode === "30")
             return 30000
 
+        if (mode === "900")
+            return 15 * 60 * 1000
+
+        if (mode === "1800")
+            return 30 * 60 * 1000
+
         if (mode === "3600")
             return 60 * 60 * 1000
 
@@ -169,6 +176,12 @@ Window {
             return 15000
         if (mode === "30")
             return 30000
+        if (mode === "900")
+            return 15 * 60 * 1000
+
+        if (mode === "1800")
+            return 30 * 60 * 1000
+
         if (mode === "3600")
             return 60 * 60 * 1000
 
@@ -339,9 +352,12 @@ Window {
                             speedKmh,
                             stationaryMs)
 
+                    const isSmartMode =
+                        String(saved.geoTrackingMode || "3600") === "smart"
+
                     const shouldRecord =
                         window.geoLastTrackPointMs <= 0
-                        || movementStarted
+                        || (isSmartMode && movementStarted)
                         || nowMs
                            - window.geoLastTrackPointMs
                            >= recordInterval
@@ -375,14 +391,23 @@ Window {
                 }
             }
 
-            // Existing GEO position update.
-            // Track history itself remains safely stored locally.
+            // Limit portal updates even if the position provider emits
+            // more frequently than the requested GPS update interval.
+            // The hourly default must not send a location on every fix.
             if (window.geoTrackingEnabled
                     && window.geoAdminAllowed) {
-                ReflectorClient.updatePortalGeoLocation(
-                    lat,
-                    lon,
-                    accuracyMeters)
+                const nowMs = Date.now()
+                const portalInterval = window.geoTrackingIntervalMs()
+
+                if (window.geoLastPortalUpdateMs <= 0
+                        || nowMs - window.geoLastPortalUpdateMs
+                           >= portalInterval) {
+                    window.geoLastPortalUpdateMs = nowMs
+                    ReflectorClient.updatePortalGeoLocation(
+                        lat,
+                        lon,
+                        accuracyMeters)
+                }
             }
         }
     }
@@ -1296,6 +1321,7 @@ Window {
                     }
 
                     window.geoLastTrackPointMs = 0
+                    window.geoLastPortalUpdateMs = 0
                     window.geoLastPositionStationary = true
                     window.geoStationarySinceMs = 0
                     window.geoLastTrackCoordinate = null
@@ -1303,6 +1329,7 @@ Window {
                 } else {
                     window.geoTrackingEnabled = false
                     window.geoLastTrackPointMs = 0
+                    window.geoLastPortalUpdateMs = 0
                     window.geoLastPositionStationary = true
                     window.geoStationarySinceMs = 0
                     window.geoLastTrackCoordinate = null
