@@ -278,8 +278,8 @@ void AudioEngine::initializeAudioComponents()
 
     // Initialize jitter buffer with enough headroom for bursty Android scheduling.
     m_jitterBuffer.setSize(FRAME_SIZE_SAMPLES * m_maxBufferFrames);
-    // Start playback after 150 ms of buffered audio, aligned with mainstream VoIP defaults.
-    const int prebufFrames = (150 / FRAME_SIZE_MS); // 20 ms per frame
+    // Start playback after 240 ms (12 x 20 ms frames) of buffered audio.
+    const int prebufFrames = (240 / FRAME_SIZE_MS); // 20 ms per frame
     m_jitterBuffer.setPrebufSamples(FRAME_SIZE_SAMPLES * prebufFrames);
 }
 

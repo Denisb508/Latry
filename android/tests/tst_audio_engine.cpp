@@ -78,7 +78,7 @@ void AudioEngineTest::initializeAudioComponentsUsesVoipEncoderApplication()
     QCOMPARE(opus_encoder_ctl(engine.m_encoder->m_encoder, OPUS_GET_APPLICATION(&application)), OPUS_OK);
     QCOMPARE(application, OPUS_APPLICATION_VOIP);
     QCOMPARE(engine.m_jitterBuffer.prebufSamples(),
-             static_cast<unsigned>(AudioEngine::FRAME_SIZE_SAMPLES * (150 / AudioEngine::FRAME_SIZE_MS)));
+             static_cast<unsigned>(AudioEngine::FRAME_SIZE_SAMPLES * (240 / AudioEngine::FRAME_SIZE_MS)));
 }
 
 void AudioEngineTest::startupPrimingBuffersUntilTargetThenEncodesFrames()

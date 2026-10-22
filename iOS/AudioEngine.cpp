@@ -572,35 +572,42 @@ void AudioEngine::processReceivedAudio(const QByteArray &audioData, quint16 sequ
         return;
     }
     
-    // Handle missing packets with packet loss concealment
+    // Handle 16-bit UDP sequence numbers safely.
     if (m_lastAudioSeq != 0) {
-        quint16 expected = static_cast<quint16>(m_lastAudioSeq + 1);
-        quint16 diff = static_cast<quint16>(sequence - expected);
-        
-#if defined(Q_OS_IOS)
-        // iOS: Handle potential packet reordering from cellular/WiFi switching
-        if (diff > 32768) {
-            // This looks like sequence wrap-around or late packet, not missing packets
-            qDebug() << "AudioEngine: iOS packet reordering detected, seq:" << sequence << "expected:" << expected;
-        } else
-#endif
-        if (diff > 0 && diff < 10) { // Reasonable missing packet count
-            unsigned missing = diff;
-            qDebug() << "AudioEngine: Missing" << missing << "packets, generating PLC";
-            while (missing--) {
-                std::vector<float> plc(MAX_FRAME_SIZE_SAMPLES * CHANNELS);
-                int plcSamples = m_decoder->decode(nullptr, 0, plc.data(), MAX_FRAME_SIZE_SAMPLES);
-                if (plcSamples > 0) {
-                    m_jitterBuffer.writeSamples(plc.data(), plcSamples);
-                }
+        const quint16 expected =
+            static_cast<quint16>(m_lastAudioSeq + 1);
+        const quint16 diff =
+            static_cast<quint16>(sequence - expected);
+
+        // Reject duplicate, delayed and out-of-order packets.
+        if (diff >= 0x8000) {
+            qWarning() << "Audio RX: stale packet"
+                       << sequence << "expected" << expected;
+            return;
+        }
+
+        // Generate at most three 20ms PLC frames.
+        constexpr unsigned kMaxPlcFrames = 3;
+        const unsigned plcCount =
+            std::min(static_cast<unsigned>(diff), kMaxPlcFrames);
+
+        for (unsigned i = 0; i < plcCount; ++i) {
+            std::vector<float> plc(FRAME_SIZE_SAMPLES * CHANNELS);
+            const int plcSamples = m_decoder->decode(
+                nullptr, 0, plc.data(), FRAME_SIZE_SAMPLES);
+
+            if (plcSamples > 0) {
+                m_jitterBuffer.writeSamples(
+                    plc.data(), plcSamples);
             }
-        } else if (diff >= 10) {
-            // Too many missing packets - probably network issue, reset sequence tracking
-            qWarning() << "AudioEngine: Too many missing packets (" << diff << "), resetting sequence tracking";
-            m_jitterBuffer.clear(); // Clear potentially corrupted buffer
+        }
+
+        if (diff > kMaxPlcFrames) {
+            qWarning() << "Audio RX: missing packets"
+                       << diff << "PLC frames" << plcCount;
         }
     }
-    
+
     // Decode the Opus audio data - hybrid approach for optimal performance
     // Try normal 20ms buffer first, fallback to larger buffer for v1 clients with 40/60ms frames
     std::vector<float> decodedSamples(FRAME_SIZE_SAMPLES * CHANNELS);
@@ -658,22 +665,42 @@ void AudioEngine::processReceivedAudioDirect(const unsigned char* audioData, int
         return;
     }
     
-    // Handle missing packets with packet loss concealment (SVXLink equivalent)
+    // Handle 16-bit UDP sequence numbers safely.
     if (m_lastAudioSeq != 0) {
-        quint16 expected = static_cast<quint16>(m_lastAudioSeq + 1);
-        quint16 diff = static_cast<quint16>(sequence - expected);
-        if (diff > 0) {
-            unsigned missing = diff;
-            while (missing--) {
-                std::vector<float> plc(MAX_FRAME_SIZE_SAMPLES * CHANNELS);
-                int plcSamples = m_decoder->decode(nullptr, 0, plc.data(), MAX_FRAME_SIZE_SAMPLES);
-                if (plcSamples > 0) {
-                    m_jitterBuffer.writeSamples(plc.data(), plcSamples);
-                }
+        const quint16 expected =
+            static_cast<quint16>(m_lastAudioSeq + 1);
+        const quint16 diff =
+            static_cast<quint16>(sequence - expected);
+
+        // Reject duplicate, delayed and out-of-order packets.
+        if (diff >= 0x8000) {
+            qWarning() << "Audio RX: stale packet"
+                       << sequence << "expected" << expected;
+            return;
+        }
+
+        // Generate at most three 20ms PLC frames.
+        constexpr unsigned kMaxPlcFrames = 3;
+        const unsigned plcCount =
+            std::min(static_cast<unsigned>(diff), kMaxPlcFrames);
+
+        for (unsigned i = 0; i < plcCount; ++i) {
+            std::vector<float> plc(FRAME_SIZE_SAMPLES * CHANNELS);
+            const int plcSamples = m_decoder->decode(
+                nullptr, 0, plc.data(), FRAME_SIZE_SAMPLES);
+
+            if (plcSamples > 0) {
+                m_jitterBuffer.writeSamples(
+                    plc.data(), plcSamples);
             }
         }
+
+        if (diff > kMaxPlcFrames) {
+            qWarning() << "Audio RX: missing packets"
+                       << diff << "PLC frames" << plcCount;
+        }
     }
-    
+
     // Decode the Opus audio data directly (SVXLink pattern) - hybrid approach for optimal performance
     // Try normal 20ms buffer first, fallback to larger buffer for v1 clients with 40/60ms frames
     std::vector<float> decodedSamples(FRAME_SIZE_SAMPLES * CHANNELS);
