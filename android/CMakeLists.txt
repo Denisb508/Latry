@@ -74,9 +74,10 @@ if(ANDROID)
 endif()
 
 # 2. Find/Build Opus (Platform-Aware)
-if(ANDROID)
-    # --- ANDROID ---
-    message(STATUS "Android build detected. Building Opus from 3rdparty/opus")
+# Windows uses the same pinned Opus submodule as Android.  This avoids
+# depending on a separate Windows codec DLL or a machine-wide Opus install.
+if(ANDROID OR WIN32)
+    message(STATUS "Building bundled Opus for Android/Windows from 3rdparty/opus")
     set(OPUS_BUILD_TESTING OFF CACHE BOOL "Disable Opus tests" FORCE)
     set(OPUS_BUILD_DEMO OFF CACHE BOOL "Disable Opus demo" FORCE)
     set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Disable Opus programs" FORCE)
@@ -205,6 +206,8 @@ if(ANDROID)
 
     # Add OpenSSL libs to APK
     add_android_openssl_libraries(applatry)
+elseif(WIN32)
+    target_link_libraries(applatry PRIVATE opus)
 else()
     target_link_libraries(applatry PRIVATE ${OPUS_LIBRARY})
 endif()
