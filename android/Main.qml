@@ -10,11 +10,26 @@ import "ProfileUtils.js" as ProfileUtils
 Window {
     id: window
 
-    width: 360
-    height: 640
+    // Keep the phone layout unchanged; use a comfortable desktop window.
+    readonly property bool desktopPlatform: Qt.platform.os === "windows"
+                                            || Qt.platform.os === "osx"
+                                            || Qt.platform.os === "linux"
+    width: desktopPlatform ? 1050 : 360
+    height: desktopPlatform ? 760 : 640
+    minimumWidth: desktopPlatform ? 620 : 0
+    minimumHeight: desktopPlatform ? 480 : 0
     visible: true
-    title: qsTr("Latry")
+    title: desktopPlatform ? qsTr("Latry by OB508 - Desktop") : qsTr("Latry")
     color: "#f4f7fb"
+
+    // F9 toggles desktop PTT without interfering with typing in profile fields.
+    Shortcut {
+        sequence: "F9"
+        enabled: window.desktopPlatform
+                 && ReflectorClient.connectionStatus.startsWith("Connected")
+        context: Qt.WindowShortcut
+        onActivated: ReflectorClient.togglePtt()
+    }
 
     property bool geoTrackingEnabled: false
 
