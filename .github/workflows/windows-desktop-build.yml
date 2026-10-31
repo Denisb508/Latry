@@ -1,0 +1,63 @@
+name: Windows Desktop Debug Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/desktop-windows-ob508
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout Latry with Opus submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt 6.9 for Windows MSVC 2022
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: 'qtconnectivity qtlocation qtpositioning qtmultimedia'
+          cache: true
+
+      - name: Configure (MSVC)
+        run: >
+          cmake -S android -B build/windows
+          -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          -DBUILD_TESTING=OFF
+          -DOPUS_BUILD_TESTING=OFF
+
+      - name: Build
+        run: cmake --build build/windows --config Release --parallel 4
+
+      - name: Package portable application
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'dist/Latry-by-OB508-Windows-x64'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $exe = Get-ChildItem 'build/windows' -Recurse -Filter 'applatry.exe' |
+            Where-Object { $_.FullName -match '[\\/]Release[\\/]' } |
+            Select-Object -First 1
+          if (-not $exe) { throw 'Built applatry.exe was not found' }
+          Copy-Item $exe.FullName (Join-Path $out 'Latry-by-OB508.exe')
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --qmldir android --compiler-runtime (Join-Path $out 'Latry-by-OB508.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'windeployqt failed' }
+          Copy-Item 'LICENSE' $out
+          Compress-Archive -Path "$out/*" -DestinationPath 'dist/Latry-by-OB508-Windows-x64.zip' -Force
+
+      - name: Upload Windows portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Latry-by-OB508-Windows-x64
+          path: dist/Latry-by-OB508-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
