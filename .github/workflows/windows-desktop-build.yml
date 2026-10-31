@@ -61,3 +61,59 @@ jobs:
           path: dist/Latry-by-OB508-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
+
+  publish_beta:
+    name: Publish public Windows BETA
+    needs: windows
+    runs-on: ubuntu-latest
+    # Publishing a release needs repository write access; the build above
+    # works with read-only access.
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download portable ZIP from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: Latry-by-OB508-Windows-x64
+          path: dist
+
+      - name: Generate SHA256 checksum
+        shell: bash
+        run: |
+          cd dist
+          sha256sum Latry-by-OB508-Windows-x64.zip > Latry-by-OB508-Windows-x64.zip.sha256
+
+      - name: Create public GitHub prerelease (only once)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BETA_TAG: v0.0.19-windows-beta.1
+        run: |
+          set -euo pipefail
+          if gh release view "$BETA_TAG" >/dev/null 2>&1; then
+            echo "Release $BETA_TAG already exists, leaving it unchanged."
+            exit 0
+          fi
+          cat > beta-notes.md <<'NOTES'
+          ## Latry by OB508 – Windows BETA 1
+
+          **Javna testna izdaja za Windows 10/11 (64-bit).** Prenos ne potrebuje GitHub prijave.
+
+          - Prenesite `Latry-by-OB508-Windows-x64.zip`.
+          - ZIP razširite v mapo in zaženite `Latry-by-OB508.exe`.
+          - Namizno okno ter tipka **F9** za vklop/izklop PTT.
+          - Prenosna aplikacija z vključenimi Qt knjižnicami in kodekom Opus.
+
+          **BETA:** Build je uspešno preveden, delovanje na Windows napravah pa še ni potrjeno. Pred uporabo oddajanja preverite povezavo na SVXReflector, predvajanje, mikrofon in PTT. Napake sporočite v projektu GitHub.
+
+          **English:** Experimental Windows x64 portable build. Extract ZIP and run `Latry-by-OB508.exe`. F9 toggles PTT. Audio, networking and UI require testing.
+          NOTES
+          gh release create "$BETA_TAG" \
+            dist/Latry-by-OB508-Windows-x64.zip \
+            dist/Latry-by-OB508-Windows-x64.zip.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Latry by OB508 – Windows BETA 1" \
+            --notes-file beta-notes.md \
+            --prerelease
